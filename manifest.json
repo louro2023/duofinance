@@ -1,0 +1,22 @@
+{
+  "name": "DuoFinance - Controle para Casais",
+  "short_name": "DuoFinance",
+  "description": "Controle financeiro moderno para casais.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f5f7",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/google/material-design-icons/master/png/action/account_balance_wallet/black/192dp/2x/outline_account_balance_wallet_black_192dp.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/google/material-design-icons/master/png/action/account_balance_wallet/black/512dp/2x/outline_account_balance_wallet_black_512dp.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
