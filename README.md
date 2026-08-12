@@ -1,20 +1,33 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# DuoFinance
 
-# Run and deploy your AI Studio app
+Controle financeiro pessoal ou doméstico, feito para uma pessoa centralizar os lançamentos com rapidez e clareza.
 
-This contains everything you need to run your app locally.
+## Recursos
 
-View your app in AI Studio: https://ai.studio/apps/drive/1ME6P1ivGXwgJQAzMDhUx-Ty6cXkkqjBt
+- visão mensal de entradas, despesas, pendências e saldo projetado;
+- despesas únicas, recorrentes e parceladas;
+- receitas mensais e receitas extras;
+- busca, filtros, edição e confirmação de lançamentos;
+- limites mensais por categoria;
+- metas com prazo, aporte mensal e aportes extras;
+- backup JSON e exportação CSV;
+- layout responsivo e instalação como PWA;
+- sincronização pelo Firebase Realtime Database.
 
-## Run Locally
+## Desenvolvimento
 
-**Prerequisites:**  Node.js
+Requer Node.js 20 ou mais recente.
 
+```bash
+npm install
+npm run dev
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Para gerar a versão de produção:
+
+```bash
+npm run build
+npm run preview
+```
+
+> Antes de publicar, configure regras privadas no Firebase Realtime Database. A configuração do cliente não substitui autenticação e regras de acesso no servidor.
