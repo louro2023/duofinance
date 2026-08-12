@@ -81,7 +81,8 @@ function EmptyState({ icon, title, text, action }: {
 }
 
 function Progress({ value, color = '#7c3aed' }: { value: number; color?: string }) {
-  return <div className="progress"><span style={{ width: `${Math.min(100, Math.max(0, value))}%`, background: color }} /></div>;
+  const percentage = Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
+  return <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percentage)}><span style={{ width: `${percentage}%`, background: color }} /></div>;
 }
 
 const TAB_EXPLANATIONS: Record<Tab, { title: string; text: string }> = {
@@ -675,7 +676,7 @@ function App() {
       <header className="topbar">
         <div className="mobile-brand"><div className="brand-mark small"><WalletCards /></div><b>DuoFinance</b></div>
         <div className="month-switcher"><button onClick={() => moveMonth(-1)} aria-label="Mês anterior"><ArrowLeft size={17} /></button><CalendarDays size={17} /><strong>{monthLabel(selectedMonth)}</strong><button onClick={() => moveMonth(1)} aria-label="Próximo mês"><ArrowRight size={17} /></button></div>
-        <div className="top-actions"><button className="icon-button" onClick={() => save({ settings: { ...settings, hideValues: !hidden } })} aria-label={hidden ? 'Mostrar valores' : 'Ocultar valores'}>{hidden ? <EyeOff size={19} /> : <Eye size={19} />}</button><button className="primary-button compact" onClick={() => { setEditingTransaction(null); setTransactionModal(true); }}><Plus size={18} /> <span>Novo lançamento</span></button></div>
+        <div className="top-actions">{currentUser.role === 'ADMIN' && <button className="soft-button admin-return-button" onClick={() => setAdminMode(true)} aria-label="Voltar à administração"><ShieldCheck size={17} /><span className="wide-label">Voltar à administração</span><span className="short-label">Admin</span></button>}<button className="icon-button" onClick={() => save({ settings: { ...settings, hideValues: !hidden } })} aria-label={hidden ? 'Mostrar valores' : 'Ocultar valores'}>{hidden ? <EyeOff size={19} /> : <Eye size={19} />}</button><button className="primary-button compact" onClick={() => { setEditingTransaction(null); setTransactionModal(true); }}><Plus size={18} /> <span>Novo lançamento</span></button></div>
       </header>
 
       <main className="content">
@@ -738,7 +739,7 @@ function App() {
             const category = CATEGORIES.find(item => item.id === budget.category) || CATEGORIES[CATEGORIES.length - 1];
             const spent = monthlyExpenses.filter(item => item.category === budget.category).reduce((sum, item) => sum + item.amount, 0);
             const percentage = budget.amount ? spent / budget.amount * 100 : 0;
-            return <div className="budget-item" key={budget.id}><div><i style={{ background: category.color }} /><b>{category.name}</b><span>{money(spent, hidden)} de {money(budget.amount, hidden)}</span><button onClick={() => save({ budgets: budgets.filter(item => item.id !== budget.id) })}><Trash2 /></button></div><Progress value={percentage} color={percentage > 100 ? '#dc2626' : category.color} /><small className={percentage > 100 ? 'red-text' : ''}>{percentage > 100 ? `${money(spent - budget.amount, hidden)} acima do limite` : `${money(Math.max(0, budget.amount - spent), hidden)} disponível`}</small></div>;
+            return <div className="budget-item" key={budget.id}><div className="budget-item-head"><i style={{ background: category.color }} /><b>{category.name}</b><span>{money(spent, hidden)} de {money(budget.amount, hidden)}</span><button onClick={() => save({ budgets: budgets.filter(item => item.id !== budget.id) })}><Trash2 /></button></div><Progress value={percentage} color={percentage > 100 ? '#dc2626' : category.color} /><small className={percentage > 100 ? 'red-text' : ''}>{percentage > 100 ? `${money(spent - budget.amount, hidden)} acima do limite` : `${money(Math.max(0, budget.amount - spent), hidden)} disponível`}</small></div>;
           })}</div>{!budgets.length && <EmptyState icon={<BarChart3 />} title="Planeje sem complicação" text="Crie limites para as categorias que mais pesam no seu orçamento." action={<button className="soft-button" onClick={() => setBudgetModal(true)}>Criar primeiro limite</button>} />}</article>
           <article className="panel planning-insight"><Sparkles /><span className="eyebrow">Leitura do mês</span><h2>{projectedBalance >= 0 ? 'Você está no caminho certo.' : 'O mês precisa de um ajuste.'}</h2><p>{projectedBalance >= 0 ? `Após gastos e metas, a projeção indica uma sobra de ${money(projectedBalance, hidden)}.` : `As saídas superam as entradas em ${money(Math.abs(projectedBalance), hidden)}. Comece revisando ${categoryTotals[0]?.name || 'os maiores gastos'}.`}</p><div><span>Comprometimento da renda</span><b>{incomeTotal ? Math.round((expenseTotal + monthlyGoalTotal) / incomeTotal * 100) : 0}%</b></div><Progress value={incomeTotal ? (expenseTotal + monthlyGoalTotal) / incomeTotal * 100 : 0} color={projectedBalance >= 0 ? '#059669' : '#dc2626'} /></article></div>
           <div className="section-heading"><div><span className="eyebrow">Seus objetivos</span><h2>Metas financeiras</h2></div></div>
