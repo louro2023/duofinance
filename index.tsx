@@ -4,7 +4,7 @@ import { initializeApp } from 'firebase/app';
 import { getDatabase, onValue, ref, update } from 'firebase/database';
 import {
   AlertTriangle, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, BellRing, CalendarDays,
-  Check, CircleDollarSign, Download, Eye, EyeOff, FileDown, Info,
+  Check, ChevronDown, CircleDollarSign, Download, Eye, EyeOff, FileDown, Info,
   LayoutDashboard, LogOut, Pencil, PiggyBank, Plus, Receipt,
   Repeat2, Search, Settings, ShieldCheck, Smartphone, Sparkles, Target, Trash2, TrendingDown,
   RotateCcw, TrendingUp, User as UserIcon, UserPlus, WalletCards, X
@@ -102,38 +102,49 @@ function Progress({ value, color = '#7c3aed' }: { value: number; color?: string 
 
 const TAB_EXPLANATIONS: Record<Tab, { title: string; text: string }> = {
   dashboard: {
-    title: 'O resultado de todas as áreas',
-    text: 'Soma as receitas dos Ajustes, as movimentações dos Lançamentos e as reservas definidas no Planejamento para montar saldos e gráficos.'
+    title: '4. Acompanhe os resultados',
+    text: 'Depois de preencher as outras áreas, confira aqui saldos, pendências, categorias e a evolução mensal.'
   },
   transactions: {
-    title: 'A fonte dos valores realizados',
-    text: 'Cada movimentação atualiza imediatamente o Dashboard, o consumo dos limites por categoria e o histórico mensal.'
+    title: '3. Registre o que aconteceu',
+    text: 'Inclua receitas extras e despesas. Cada lançamento atualiza os limites, o saldo e os gráficos automaticamente.'
   },
   planning: {
-    title: 'Onde intenção vira previsão',
-    text: 'Os limites comparam o que foi lançado por categoria. As reservas mensais reduzem o saldo projetado e os aportes entram também nos Lançamentos.'
+    title: '2. Planeje o mês',
+    text: 'Defina limites para categorias e crie metas. O sistema comparará o planejado com os lançamentos reais.'
   },
   settings: {
-    title: 'A base de todo o sistema',
-    text: 'As receitas recorrentes alimentam todos os meses. Preferências de perfil, privacidade e backup valem para todas as outras áreas.'
+    title: '1. Comece por aqui',
+    text: 'Dê um nome ao espaço e cadastre primeiro todas as receitas mensais. Essa é a base de todos os cálculos.'
   }
+};
+const FILL_GUIDANCE: Record<Tab, { title: string; intro: string; items: string[] }> = {
+  settings: { title: 'Como preencher os Ajustes', intro: 'Prepare a base antes de lançar despesas.', items: ['Informe o nome do espaço e quem será o responsável.', 'Cadastre salário e outras receitas que se repetem todo mês.', 'Se desejar, crie acessos para outras pessoas da casa.'] },
+  planning: { title: 'Como montar o Planejamento', intro: 'Use valores realistas que possam ser acompanhados no mês.', items: ['Crie limites para categorias importantes, como alimentação e moradia.', 'Cadastre metas, valor desejado, prazo e aporte mensal.', 'Os limites serão consumidos quando você adicionar despesas nos Lançamentos.'] },
+  transactions: { title: 'Como registrar Lançamentos', intro: 'Registre entradas e saídas conforme elas acontecerem.', items: ['Escolha receita extra ou despesa e informe descrição, valor e data.', 'Selecione a categoria correta para organizar limites e gráficos.', 'Use recorrente para contas mensais, parcelada para compras a prazo e confirme quando pagar ou receber.'] },
+  dashboard: { title: 'Como interpretar a Visão geral', intro: 'Aqui você acompanha o resultado do que foi preenchido.', items: ['Saldo projetado considera receitas, despesas e reservas ainda não realizadas.', 'Pendências mostram o que ainda precisa ser pago no mês.', 'Os gráficos agrupam lançamentos por categoria e comparam os últimos seis meses.'] }
 };
 const transactionsForMonth = (items: Transaction[], key: string) => items.filter(transaction => {
   const transactionKey = monthKey(transaction.date);
   return transaction.type === 'FIXED' ? transactionKey <= key : transactionKey === key;
 });
 
-function IntegrationMap({ active, onNavigate }: { active: Tab; onNavigate: (tab: Tab) => void }) {
+function IntegrationMap({ active, completed, onNavigate }: { active: Tab; completed: Record<Tab, boolean>; onNavigate: (tab: Tab) => void }) {
   const steps: { id: Tab; label: string; detail: string; icon: React.ReactNode }[] = [
-    { id: 'settings', label: 'Ajustes', detail: 'receitas base', icon: <Settings /> },
-    { id: 'transactions', label: 'Lançamentos', detail: 'entradas e saídas', icon: <Receipt /> },
-    { id: 'planning', label: 'Planejamento', detail: 'limites e metas', icon: <Target /> },
-    { id: 'dashboard', label: 'Visão geral', detail: 'cálculos e gráficos', icon: <BarChart3 /> }
+    { id: 'settings', label: '1. Ajustes', detail: 'espaço e receitas', icon: <Settings /> },
+    { id: 'planning', label: '2. Planejamento', detail: 'limites e metas', icon: <Target /> },
+    { id: 'transactions', label: '3. Lançamentos', detail: 'movimentações reais', icon: <Receipt /> },
+    { id: 'dashboard', label: '4. Visão geral', detail: 'resultados e gráficos', icon: <BarChart3 /> }
   ];
   return <section className="integration-map">
-    <div className="integration-copy"><Info /><div><span className="eyebrow">Como tudo se conecta</span><h3>{TAB_EXPLANATIONS[active].title}</h3><p>{TAB_EXPLANATIONS[active].text}</p></div></div>
-    <div className="integration-flow">{steps.map((step, index) => <React.Fragment key={step.id}><button className={active === step.id ? 'active' : ''} onClick={() => onNavigate(step.id)}>{step.icon}<span><b>{step.label}</b><small>{step.detail}</small></span></button>{index < steps.length - 1 && <ArrowRight className="flow-arrow" />}</React.Fragment>)}</div>
+    <div className="integration-copy"><Info /><div><span className="eyebrow">Ordem recomendada</span><h3>{TAB_EXPLANATIONS[active].title}</h3><p>{TAB_EXPLANATIONS[active].text}</p></div></div>
+    <div className="integration-flow">{steps.map((step, index) => <React.Fragment key={step.id}><button className={`${active === step.id ? 'active' : ''} ${completed[step.id] ? 'completed' : ''}`} onClick={() => onNavigate(step.id)}>{completed[step.id] ? <Check /> : step.icon}<span><b>{step.label}</b><small>{completed[step.id] ? 'Preenchido' : step.detail}</small></span></button>{index < steps.length - 1 && <ArrowRight className="flow-arrow" />}</React.Fragment>)}</div>
   </section>;
+}
+
+function FillGuide({ tab }: { tab: Tab }) {
+  const guide = FILL_GUIDANCE[tab];
+  return <details className="fill-guide" open={tab === 'settings'}><summary><div><Sparkles /><span><b>{guide.title}</b><small>{guide.intro}</small></span></div><ChevronDown /></summary><ol>{guide.items.map(item => <li key={item}>{item}</li>)}</ol></details>;
 }
 
 function App() {
@@ -164,6 +175,7 @@ function App() {
   const [kindFilter, setKindFilter] = useState<'ALL' | TransactionKind>('ALL');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const importRef = useRef<HTMLInputElement>(null);
+  const onboardingRouted = useRef('');
 
   const notify = (message: string, tone: 'success' | 'error' = 'success') => setToast({ message, tone });
 
@@ -209,6 +221,23 @@ function App() {
 
   const currentUser = users.find(user => user.id === sessionUserId) || null;
   const loggedIn = Boolean(currentUser);
+  const guideCompletion: Record<Tab, boolean> = {
+    settings: incomes.length > 0,
+    planning: budgets.length > 0 || goals.length > 0,
+    transactions: transactions.length > 0,
+    dashboard: incomes.length > 0 && transactions.length > 0
+  };
+  useEffect(() => {
+    if (loading || !currentUser || onboardingRouted.current === currentUser.id) return;
+    onboardingRouted.current = currentUser.id;
+    const routeKey = `duofinance_guided_${currentUser.id}`;
+    if (localStorage.getItem(routeKey)) return;
+    const nextTab: Tab = !guideCompletion.settings ? 'settings'
+      : !guideCompletion.planning ? 'planning'
+      : !guideCompletion.transactions ? 'transactions' : 'dashboard';
+    setTab(nextTab);
+    localStorage.setItem(routeKey, 'true');
+  }, [loading, currentUser, guideCompletion.settings, guideCompletion.planning, guideCompletion.transactions]);
   const currentKey = monthKey(selectedMonth);
   const activeIncomes = incomes.filter(income => income.active !== false);
   const recurringIncome = activeIncomes.reduce((sum, income) => sum + Number(income.amount || 0), 0);
@@ -483,7 +512,9 @@ function App() {
         await update(ref(db, DB_PATH), {
           users: null, incomes: null, transactions: null, goals: null, budgets: null, settings: null
         });
+        localStorage.removeItem(`duofinance_guided_${currentUser?.id}`);
         localStorage.removeItem('duofinance_session');
+        onboardingRouted.current = '';
         setSessionUserId('');
         setResetModal(false);
       } catch (error) {
@@ -493,9 +524,11 @@ function App() {
       return;
     }
     await save({ incomes: null, transactions: null, goals: null, budgets: null }, 'Dados financeiros removidos.');
+    localStorage.removeItem(`duofinance_guided_${currentUser?.id}`);
+    onboardingRouted.current = '';
     setResetModal(false);
     setSelectedMonth(new Date());
-    setTab('dashboard');
+    setTab('settings');
   };
 
   const exportBackup = () => {
@@ -565,10 +598,10 @@ function App() {
   const profileName = currentUser.name;
   const isOwner = currentUser.role === 'OWNER' || (!currentUser.role && currentUser.id === users[0]?.id);
   const navItems: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'dashboard', label: 'Visão geral', icon: <LayoutDashboard size={20} /> },
-    { id: 'transactions', label: 'Lançamentos', icon: <Receipt size={20} /> },
-    { id: 'planning', label: 'Planejamento', icon: <Target size={20} /> },
-    { id: 'settings', label: 'Ajustes', icon: <Settings size={20} /> }
+    { id: 'settings', label: '1. Ajustes', icon: <Settings size={20} /> },
+    { id: 'planning', label: '2. Planejamento', icon: <Target size={20} /> },
+    { id: 'transactions', label: '3. Lançamentos', icon: <Receipt size={20} /> },
+    { id: 'dashboard', label: '4. Visão geral', icon: <LayoutDashboard size={20} /> }
   ];
 
   return <div className="app-shell">
@@ -589,7 +622,8 @@ function App() {
         {syncError && <div className="alert error">{syncError}</div>}
         {tab === 'dashboard' && <>
           <section className="welcome"><div><span className="eyebrow">{settings.householdName}</span><h1>Olá, {profileName.split(' ')[0]} <span>👋</span></h1><p>Aqui está o retrato financeiro de {monthLabel(selectedMonth).toLowerCase()}.</p></div>{!standalone && <button className="soft-button" onClick={installApp}><Smartphone size={18} /> Instalar aplicativo</button>}</section>
-          <IntegrationMap active={tab} onNavigate={setTab} />
+          <IntegrationMap active={tab} completed={guideCompletion} onNavigate={setTab} />
+          <FillGuide tab={tab} />
 
           <section className="balance-hero">
             <div className="hero-orb one" /><div className="hero-orb two" />
@@ -623,7 +657,8 @@ function App() {
 
         {tab === 'transactions' && <section className="page-section">
           <div className="page-title"><div><span className="eyebrow">Movimentações</span><h1>Lançamentos</h1><p>Encontre, edite e confirme tudo o que entrou ou saiu.</p></div><button className="primary-button" onClick={() => { setEditingTransaction(null); setTransactionModal(true); }}><Plus size={18} /> Novo lançamento</button></div>
-          <IntegrationMap active={tab} onNavigate={setTab} />
+          <IntegrationMap active={tab} completed={guideCompletion} onNavigate={setTab} />
+          <FillGuide tab={tab} />
           <div className="filter-bar"><div className="search-box"><Search size={18} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar por descrição, nota ou tag" /></div><select value={kindFilter} onChange={event => setKindFilter(event.target.value as any)}><option value="ALL">Entradas e saídas</option><option value="EXPENSE">Só despesas</option><option value="INCOME">Só receitas</option></select><select value={categoryFilter} onChange={event => setCategoryFilter(event.target.value)}><option value="ALL">Todas as categorias</option>{CATEGORIES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
           <div className="transaction-summary"><span><ArrowUpRight /> Receitas <b>{money(incomeTotal, hidden)}</b></span><span><ArrowDownRight /> Despesas <b>{money(expenseTotal, hidden)}</b></span><span><CircleDollarSign /> Resultado <b className={projectedBalance >= 0 ? 'green-text' : 'red-text'}>{money(projectedBalance, hidden)}</b></span></div>
           <div className="transaction-table"><div className="table-head"><span>Lançamento</span><span>Categoria</span><span>Data</span><span>Status</span><span>Valor</span><span /></div>{visibleTransactions.map(item => {
@@ -637,7 +672,8 @@ function App() {
 
         {tab === 'planning' && <section className="page-section">
           <div className="page-title"><div><span className="eyebrow">Planos e escolhas</span><h1>Planejamento</h1><p>Defina limites realistas e transforme intenção em progresso.</p></div><div className="button-group"><button className="soft-button" onClick={() => setBudgetModal(true)}><Plus size={17} /> Limite</button><button className="primary-button" onClick={() => setGoalModal(true)}><Plus size={17} /> Nova meta</button></div></div>
-          <IntegrationMap active={tab} onNavigate={setTab} />
+          <IntegrationMap active={tab} completed={guideCompletion} onNavigate={setTab} />
+          <FillGuide tab={tab} />
           <div className="planning-grid"><article className="panel"><div className="panel-head"><div><span className="eyebrow">Orçamento mensal</span><h2>Limites por categoria</h2></div><button className="icon-button" onClick={() => setBudgetModal(true)}><Plus /></button></div><p className="context-note"><Info /> O consumo de cada limite é calculado automaticamente pelas categorias dos Lançamentos no mês selecionado.</p><div className="budget-list">{budgets.map(budget => {
             const category = CATEGORIES.find(item => item.id === budget.category) || CATEGORIES[CATEGORIES.length - 1];
             const spent = monthlyExpenses.filter(item => item.category === budget.category).reduce((sum, item) => sum + item.amount, 0);
@@ -657,7 +693,8 @@ function App() {
 
         {tab === 'settings' && <section className="page-section settings-page">
           <div className="page-title"><div><span className="eyebrow">Personalização e dados</span><h1>Ajustes</h1><p>Configure o DuoFinance para a sua rotina.</p></div></div>
-          <IntegrationMap active={tab} onNavigate={setTab} />
+          <IntegrationMap active={tab} completed={guideCompletion} onNavigate={setTab} />
+          <FillGuide tab={tab} />
           <div className="settings-grid"><article className="panel"><div className="panel-head"><div><span className="eyebrow">Seu espaço</span><h2>Perfil de uso</h2></div><UserIcon /></div><form className="form-grid" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); save({ settings: { ...settings, householdName: String(form.get('householdName')), responsibleName: String(form.get('responsibleName')), mode: String(form.get('mode')) } }, 'Perfil atualizado.'); }}><Field label="Nome do espaço"><input name="householdName" defaultValue={settings.householdName} required placeholder="Ex: Casa Silva" /></Field><Field label="Responsável pelos lançamentos"><input name="responsibleName" defaultValue={settings.responsibleName || users[0]?.name || profileName} required /></Field><Field label="Como você usa o app?" className="full"><select name="mode" defaultValue={settings.mode}><option value="INDIVIDUAL">Controle individual</option><option value="HOUSEHOLD">Controle da casa / casal</option></select></Field><button className="primary-button" type="submit">Salvar perfil</button></form></article>
           <article className="panel"><div className="panel-head"><div><span className="eyebrow">Entradas recorrentes</span><h2>Receitas mensais</h2></div><button className="icon-button" onClick={() => setIncomeModal('new')}><Plus /></button></div><p className="context-note"><Info /> Estas receitas formam a base de entradas de todos os meses no Dashboard e no gráfico histórico.</p><div className="income-list">{incomes.map(income => <div key={income.id}><div className="metric-icon green"><ArrowUpRight /></div><div><b>{income.name}</b><span>Todo dia {income.day}</span></div><strong>{money(income.amount, hidden)}</strong><button onClick={() => setIncomeModal(income)}><Pencil /></button><button onClick={() => window.confirm('Excluir esta receita mensal?') && save({ incomes: incomes.filter(item => item.id !== income.id) })}><Trash2 /></button></div>)}</div>{!incomes.length && <EmptyState icon={<CircleDollarSign />} title="Cadastre sua renda" text="Salários e outras entradas recorrentes entram automaticamente na projeção mensal." />}<button className="soft-button wide" onClick={() => setIncomeModal('new')}><Plus size={17} /> Adicionar receita mensal</button></article>
           <article className="panel"><div className="panel-head"><div><span className="eyebrow">Portabilidade</span><h2>Seus dados</h2></div><ShieldCheck /></div><p className="panel-copy">Mantenha uma cópia dos dados ou leve seus lançamentos para uma planilha.</p><div className="data-actions"><button onClick={exportBackup}><Download /> Baixar backup <span>Arquivo completo .json</span></button><button onClick={exportCsv}><FileDown /> Exportar planilha <span>Lançamentos em .csv</span></button><button onClick={() => importRef.current?.click()}><ArrowUpRight /> Restaurar backup <span>Substitui os dados atuais</span></button><input ref={importRef} hidden type="file" accept="application/json" onChange={importBackup} /></div></article>
@@ -669,7 +706,7 @@ function App() {
       </main>
     </div>
 
-    <nav className="bottom-nav">{navItems.map(item => <button key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.icon}<span>{item.label.split(' ')[0]}</span></button>)}</nav>
+    <nav className="bottom-nav">{navItems.map(item => <button key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.icon}<span>{item.label.replace(/^\d+\.\s*/, '').split(' ')[0]}</span></button>)}</nav>
 
     {transactionModal && <TransactionModal transaction={editingTransaction} onClose={() => { setTransactionModal(false); setEditingTransaction(null); }} onSubmit={submitTransaction} />}
     {goalModal && <Modal title="Nova meta financeira" subtitle="Transforme um plano em um valor alcançável." onClose={() => setGoalModal(false)}><form className="form-grid" onSubmit={submitGoal}><Field label="Nome da meta" className="full"><input name="name" required placeholder="Ex: Reserva de emergência" /></Field><Field label="Valor desejado"><input name="target" type="number" min="0.01" step="0.01" required placeholder="R$ 0,00" /></Field><Field label="Já tenho"><input name="current" type="number" min="0" step="0.01" placeholder="R$ 0,00" /></Field><Field label="Aporte mensal"><input name="monthly" type="number" min="0" step="0.01" placeholder="R$ 0,00" /></Field><Field label="Prazo desejado"><input name="deadline" type="date" /></Field><Field label="Cor" className="full"><div className="color-picker">{GOAL_COLORS.map((color, index) => <label key={color}><input type="radio" name="color" value={color} defaultChecked={index === 0} /><i style={{ background: color }} /></label>)}</div></Field><div className="modal-actions full"><button type="button" className="ghost-button" onClick={() => setGoalModal(false)}>Cancelar</button><button className="primary-button" type="submit">Criar meta</button></div></form></Modal>}

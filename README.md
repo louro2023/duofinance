@@ -20,10 +20,12 @@ Controle financeiro pessoal ou doméstico, feito para uma pessoa centralizar os 
 
 O sistema utiliza uma única base de cálculo para evitar divergências entre telas:
 
-1. **Ajustes** define as receitas recorrentes que formam a entrada base de cada mês.
-2. **Lançamentos** registra receitas extras, despesas, recorrências, parcelas e aportes realizados.
-3. **Planejamento** compara os lançamentos com os limites por categoria e calcula quanto ainda precisa ser reservado para cada meta.
+1. **Ajustes** define o espaço e as receitas recorrentes que formam a entrada base de cada mês.
+2. **Planejamento** define limites por categoria e quanto deve ser reservado para cada meta.
+3. **Lançamentos** registra receitas extras, despesas, recorrências, parcelas e aportes realizados.
 4. **Visão geral** combina essas informações para gerar saldo projetado, pendências e gráficos.
+
+No primeiro uso, o aplicativo encaminha a pessoa para a primeira etapa ainda não preenchida. Todas as telas apresentam a ordem recomendada e instruções específicas de preenchimento.
 
 ```text
 Saldo projetado = receitas recorrentes + receitas extras − despesas − reservas ainda não realizadas
