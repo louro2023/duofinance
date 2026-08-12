@@ -11,6 +11,8 @@ Controle financeiro pessoal ou doméstico, feito para uma pessoa centralizar os 
 - limites mensais por categoria;
 - metas com prazo, aporte mensal e aportes extras;
 - backup JSON e exportação CSV;
+- usuários adicionais compartilhando o mesmo espaço financeiro;
+- reset somente das finanças ou reset completo do sistema;
 - layout responsivo e instalação como PWA;
 - sincronização pelo Firebase Realtime Database.
 
