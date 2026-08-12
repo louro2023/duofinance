@@ -4,7 +4,7 @@ import { initializeApp } from 'firebase/app';
 import { getDatabase, onValue, ref, update } from 'firebase/database';
 import {
   ArrowDownRight, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, BellRing, CalendarDays,
-  Check, CircleDollarSign, Download, Eye, EyeOff, FileDown,
+  Check, CircleDollarSign, Download, Eye, EyeOff, FileDown, Info,
   LayoutDashboard, LogOut, Pencil, PiggyBank, Plus, Receipt,
   Repeat2, Search, Settings, ShieldCheck, Smartphone, Sparkles, Target, Trash2, TrendingDown,
   TrendingUp, User as UserIcon, WalletCards, X
@@ -100,6 +100,42 @@ function Progress({ value, color = '#7c3aed' }: { value: number; color?: string 
   return <div className="progress"><span style={{ width: `${Math.min(100, Math.max(0, value))}%`, background: color }} /></div>;
 }
 
+const TAB_EXPLANATIONS: Record<Tab, { title: string; text: string }> = {
+  dashboard: {
+    title: 'O resultado de todas as áreas',
+    text: 'Soma as receitas dos Ajustes, as movimentações dos Lançamentos e as reservas definidas no Planejamento para montar saldos e gráficos.'
+  },
+  transactions: {
+    title: 'A fonte dos valores realizados',
+    text: 'Cada movimentação atualiza imediatamente o Dashboard, o consumo dos limites por categoria e o histórico mensal.'
+  },
+  planning: {
+    title: 'Onde intenção vira previsão',
+    text: 'Os limites comparam o que foi lançado por categoria. As reservas mensais reduzem o saldo projetado e os aportes entram também nos Lançamentos.'
+  },
+  settings: {
+    title: 'A base de todo o sistema',
+    text: 'As receitas recorrentes alimentam todos os meses. Preferências de perfil, privacidade e backup valem para todas as outras áreas.'
+  }
+};
+const transactionsForMonth = (items: Transaction[], key: string) => items.filter(transaction => {
+  const transactionKey = monthKey(transaction.date);
+  return transaction.type === 'FIXED' ? transactionKey <= key : transactionKey === key;
+});
+
+function IntegrationMap({ active, onNavigate }: { active: Tab; onNavigate: (tab: Tab) => void }) {
+  const steps: { id: Tab; label: string; detail: string; icon: React.ReactNode }[] = [
+    { id: 'settings', label: 'Ajustes', detail: 'receitas base', icon: <Settings /> },
+    { id: 'transactions', label: 'Lançamentos', detail: 'entradas e saídas', icon: <Receipt /> },
+    { id: 'planning', label: 'Planejamento', detail: 'limites e metas', icon: <Target /> },
+    { id: 'dashboard', label: 'Visão geral', detail: 'cálculos e gráficos', icon: <BarChart3 /> }
+  ];
+  return <section className="integration-map">
+    <div className="integration-copy"><Info /><div><span className="eyebrow">Como tudo se conecta</span><h3>{TAB_EXPLANATIONS[active].title}</h3><p>{TAB_EXPLANATIONS[active].text}</p></div></div>
+    <div className="integration-flow">{steps.map((step, index) => <React.Fragment key={step.id}><button className={active === step.id ? 'active' : ''} onClick={() => onNavigate(step.id)}>{step.icon}<span><b>{step.label}</b><small>{step.detail}</small></span></button>{index < steps.length - 1 && <ArrowRight className="flow-arrow" />}</React.Fragment>)}</div>
+  </section>;
+}
+
 function App() {
   const [loading, setLoading] = useState(true);
   const [syncError, setSyncError] = useState('');
@@ -175,10 +211,7 @@ function App() {
   const activeIncomes = incomes.filter(income => income.active !== false);
   const recurringIncome = activeIncomes.reduce((sum, income) => sum + Number(income.amount || 0), 0);
 
-  const monthTransactions = useMemo(() => transactions.filter(transaction => {
-    const transactionKey = monthKey(transaction.date);
-    return transaction.type === 'FIXED' ? transactionKey <= currentKey : transactionKey === currentKey;
-  }), [transactions, currentKey]);
+  const monthTransactions = useMemo(() => transactionsForMonth(transactions, currentKey), [transactions, currentKey]);
 
   const monthlyExpenses = monthTransactions.filter(item => (item.kind || 'EXPENSE') === 'EXPENSE');
   const monthlyExtraIncome = monthTransactions.filter(item => item.kind === 'INCOME');
@@ -190,9 +223,38 @@ function App() {
   const paidExpenseTotal = monthlyExpenses.filter(isPaidInSelectedMonth).reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const pendingTotal = expenseTotal - paidExpenseTotal;
   const monthlyGoalTotal = goals.filter(goal => goal.currentAmount < goal.targetAmount)
-    .reduce((sum, goal) => sum + Number(goal.monthlyAmount || 0), 0);
+    .reduce((sum, goal) => {
+      const contributedThisMonth = monthTransactions.filter(item => item.goalId === goal.id)
+        .reduce((total, item) => total + Number(item.amount || 0), 0);
+      return sum + Math.max(0, Number(goal.monthlyAmount || 0) - contributedThisMonth);
+    }, 0);
   const projectedBalance = incomeTotal - expenseTotal - monthlyGoalTotal;
   const savingsRate = incomeTotal > 0 ? Math.max(0, (projectedBalance / incomeTotal) * 100) : 0;
+
+  const historicalData = useMemo(() => Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - 5 + index, 1);
+    const key = monthKey(date);
+    const items = transactionsForMonth(transactions, key);
+    const expenses = items.filter(item => (item.kind || 'EXPENSE') === 'EXPENSE')
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const extraIncome = items.filter(item => item.kind === 'INCOME')
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const income = recurringIncome + extraIncome;
+    const plannedGoals = goals.filter(goal => goal.currentAmount < goal.targetAmount)
+      .reduce((sum, goal) => {
+        const contributed = items.filter(item => item.goalId === goal.id)
+          .reduce((total, item) => total + Number(item.amount || 0), 0);
+        return sum + Math.max(0, Number(goal.monthlyAmount || 0) - contributed);
+      }, 0);
+    return {
+      key,
+      label: new Intl.DateTimeFormat('pt-BR', { month: 'short' }).format(date).replace('.', ''),
+      income,
+      outflow: expenses + plannedGoals,
+      result: income - expenses - plannedGoals
+    };
+  }), [selectedMonth, transactions, recurringIncome, goals]);
+  const historicalMax = Math.max(1, ...historicalData.flatMap(item => [item.income, item.outflow]));
 
   const categoryTotals = useMemo(() => CATEGORIES.map(category => ({
     ...category,
@@ -264,9 +326,23 @@ function App() {
       isPaid: form.get('isPaid') === 'on', notes: String(form.get('notes') || '').trim(),
       tags: String(form.get('tags') || '').split(',').map(tag => tag.trim()).filter(Boolean)
     };
+    if (editingTransaction?.goalId) {
+      base.kind = 'EXPENSE';
+      base.category = 'goals';
+      base.type = 'VARIABLE';
+    }
     let next = [...transactions];
+    let nextGoals = goals;
     if (editingTransaction) {
       next = next.map(item => item.id === editingTransaction.id ? base : item);
+      if (editingTransaction.goalId) {
+        const previousContribution = editingTransaction.isPaid ? editingTransaction.amount : 0;
+        const nextContribution = base.isPaid ? totalAmount : 0;
+        const difference = nextContribution - previousContribution;
+        nextGoals = goals.map(goal => goal.id === editingTransaction.goalId
+          ? { ...goal, currentAmount: Math.min(goal.targetAmount, Math.max(0, goal.currentAmount + difference)) }
+          : goal);
+      }
     } else if (type === 'INSTALLMENT') {
       const parentId = id();
       next.push(...Array.from({ length: installments }, (_, index) => {
@@ -281,7 +357,7 @@ function App() {
     } else {
       next.push(base);
     }
-    save({ transactions: next }, editingTransaction ? 'Lançamento atualizado.' : 'Lançamento adicionado.');
+    save({ transactions: next, ...(editingTransaction?.goalId ? { goals: nextGoals } : {}) }, editingTransaction ? 'Lançamento atualizado.' : 'Lançamento adicionado.');
     setEditingTransaction(null);
     setTransactionModal(false);
   };
@@ -289,7 +365,10 @@ function App() {
   const removeTransaction = (transaction: Transaction) => {
     const removeSeries = transaction.parentId && window.confirm('Excluir todas as parcelas? Clique em Cancelar para excluir apenas esta.');
     const next = transactions.filter(item => removeSeries ? item.parentId !== transaction.parentId : item.id !== transaction.id);
-    save({ transactions: next }, 'Lançamento excluído.');
+    const nextGoals = transaction.goalId ? goals.map(goal => goal.id === transaction.goalId
+      ? { ...goal, currentAmount: Math.max(0, goal.currentAmount - (transaction.isPaid ? transaction.amount : 0)) }
+      : goal) : goals;
+    save({ transactions: next, ...(transaction.goalId ? { goals: nextGoals } : {}) }, transaction.goalId ? 'Aporte removido da meta e do mês.' : 'Lançamento excluído.');
   };
 
   const togglePaid = (transaction: Transaction) => {
@@ -299,7 +378,10 @@ function App() {
           ? (transaction.paidMonths || []).filter(key => key !== currentKey)
           : [...new Set([...(transaction.paidMonths || []), currentKey])] }
       : { ...transaction, isPaid: !transaction.isPaid };
-    save({ transactions: transactions.map(item => item.id === transaction.id ? updated : item) },
+    const nextGoals = transaction.goalId ? goals.map(goal => goal.id === transaction.goalId
+      ? { ...goal, currentAmount: Math.min(goal.targetAmount, Math.max(0, goal.currentAmount + (currentlyPaid ? -transaction.amount : transaction.amount))) }
+      : goal) : goals;
+    save({ transactions: transactions.map(item => item.id === transaction.id ? updated : item), ...(transaction.goalId ? { goals: nextGoals } : {}) },
       currentlyPaid ? 'Marcado como pendente neste mês.' : 'Marcado como pago neste mês.');
   };
 
@@ -318,10 +400,22 @@ function App() {
 
   const addContribution = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!contributionGoal) return;
+    if (!contributionGoal || !currentUser) return;
     const value = Number(new FormData(event.currentTarget).get('amount'));
-    save({ goals: goals.map(goal => goal.id === contributionGoal.id
-      ? { ...goal, currentAmount: Math.min(goal.targetAmount, goal.currentAmount + value) } : goal) }, 'Aporte registrado.');
+    const today = new Date();
+    const lastDay = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0).getDate();
+    const contributionDate = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), Math.min(today.getDate(), lastDay), 12);
+    const contribution: Transaction = {
+      id: id(), userId: currentUser.id, goalId: contributionGoal.id, kind: 'EXPENSE', type: 'VARIABLE',
+      name: `Aporte: ${contributionGoal.name}`, amount: value, category: 'goals',
+      date: contributionDate.toISOString(), paymentMethod: 'TRANSFER', isPaid: true,
+      notes: 'Aporte registrado pela área de Planejamento.', tags: ['meta', contributionGoal.name]
+    };
+    save({
+      goals: goals.map(goal => goal.id === contributionGoal.id
+        ? { ...goal, currentAmount: Math.min(goal.targetAmount, goal.currentAmount + value) } : goal),
+      transactions: [...transactions, contribution]
+    }, 'Aporte registrado na meta e nos lançamentos.');
     setContributionGoal(null);
   };
 
@@ -440,11 +534,12 @@ function App() {
         {syncError && <div className="alert error">{syncError}</div>}
         {tab === 'dashboard' && <>
           <section className="welcome"><div><span className="eyebrow">{settings.householdName}</span><h1>Olá, {profileName.split(' ')[0]} <span>👋</span></h1><p>Aqui está o retrato financeiro de {monthLabel(selectedMonth).toLowerCase()}.</p></div>{!standalone && <button className="soft-button" onClick={installApp}><Smartphone size={18} /> Instalar aplicativo</button>}</section>
+          <IntegrationMap active={tab} onNavigate={setTab} />
 
           <section className="balance-hero">
             <div className="hero-orb one" /><div className="hero-orb two" />
             <div className="hero-main"><span>Saldo projetado no mês</span><h2>{money(projectedBalance, hidden)}</h2><div className={`trend-pill ${projectedBalance >= 0 ? 'positive' : 'negative'}`}>{projectedBalance >= 0 ? <TrendingUp size={15} /> : <TrendingDown size={15} />}{projectedBalance >= 0 ? 'Seu planejamento fecha positivo' : 'Revise despesas e limites'}</div></div>
-            <div className="hero-stats"><div><span><ArrowUpRight /> Entradas</span><strong>{money(incomeTotal, hidden)}</strong></div><div><span><ArrowDownRight /> Saídas previstas</span><strong>{money(expenseTotal, hidden)}</strong></div><div><span><PiggyBank /> Para objetivos</span><strong>{money(monthlyGoalTotal, hidden)}</strong></div></div>
+            <div className="hero-stats"><div><span><ArrowUpRight /> Entradas</span><strong>{money(incomeTotal, hidden)}</strong></div><div><span><ArrowDownRight /> Saídas previstas</span><strong>{money(expenseTotal, hidden)}</strong></div><div><span><PiggyBank /> Ainda reservar</span><strong>{money(monthlyGoalTotal, hidden)}</strong></div></div>
           </section>
 
           <section className="metric-grid">
@@ -464,10 +559,16 @@ function App() {
               {!monthlyExpenses.some(item => !isPaidInSelectedMonth(item)) && <EmptyState icon={<Check />} title="Tudo em dia" text="Não há despesas pendentes neste mês." />}
             </article>
           </section>
+
+          <section className="panel history-panel">
+            <div className="panel-head"><div><span className="eyebrow">Integração ao longo do tempo</span><h2>Entradas x saídas planejadas</h2></div><div className="chart-legend"><span><i className="income" /> Entradas</span><span><i className="outflow" /> Saídas + metas</span></div></div>
+            <div className="history-layout"><div className="history-chart" aria-label="Comparativo dos últimos seis meses">{historicalData.map(item => <div className={`history-column ${item.key === currentKey ? 'current' : ''}`} key={item.key}><div className="bars"><i className="income" style={{ height: `${Math.max(3, item.income / historicalMax * 100)}%` }} title={`Entradas: ${money(item.income)}`} /><i className="outflow" style={{ height: `${Math.max(3, item.outflow / historicalMax * 100)}%` }} title={`Saídas e metas: ${money(item.outflow)}`} /></div><b className={item.result >= 0 ? 'green-text' : 'red-text'}>{hidden ? '•••' : money(item.result).replace('R$', '').trim()}</b><span>{item.label}</span></div>)}</div><aside className="chart-explanation"><Info /><div><b>Como este gráfico é calculado?</b><p>Entradas recorrentes de <button onClick={() => setTab('settings')}>Ajustes</button> + receitas extras, menos despesas de <button onClick={() => setTab('transactions')}>Lançamentos</button> e reservas mensais de <button onClick={() => setTab('planning')}>Planejamento</button>.</p><code>Resultado = entradas − despesas − reservas</code></div></aside></div>
+          </section>
         </>}
 
         {tab === 'transactions' && <section className="page-section">
           <div className="page-title"><div><span className="eyebrow">Movimentações</span><h1>Lançamentos</h1><p>Encontre, edite e confirme tudo o que entrou ou saiu.</p></div><button className="primary-button" onClick={() => { setEditingTransaction(null); setTransactionModal(true); }}><Plus size={18} /> Novo lançamento</button></div>
+          <IntegrationMap active={tab} onNavigate={setTab} />
           <div className="filter-bar"><div className="search-box"><Search size={18} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar por descrição, nota ou tag" /></div><select value={kindFilter} onChange={event => setKindFilter(event.target.value as any)}><option value="ALL">Entradas e saídas</option><option value="EXPENSE">Só despesas</option><option value="INCOME">Só receitas</option></select><select value={categoryFilter} onChange={event => setCategoryFilter(event.target.value)}><option value="ALL">Todas as categorias</option>{CATEGORIES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
           <div className="transaction-summary"><span><ArrowUpRight /> Receitas <b>{money(incomeTotal, hidden)}</b></span><span><ArrowDownRight /> Despesas <b>{money(expenseTotal, hidden)}</b></span><span><CircleDollarSign /> Resultado <b className={projectedBalance >= 0 ? 'green-text' : 'red-text'}>{money(projectedBalance, hidden)}</b></span></div>
           <div className="transaction-table"><div className="table-head"><span>Lançamento</span><span>Categoria</span><span>Data</span><span>Status</span><span>Valor</span><span /></div>{visibleTransactions.map(item => {
@@ -481,7 +582,8 @@ function App() {
 
         {tab === 'planning' && <section className="page-section">
           <div className="page-title"><div><span className="eyebrow">Planos e escolhas</span><h1>Planejamento</h1><p>Defina limites realistas e transforme intenção em progresso.</p></div><div className="button-group"><button className="soft-button" onClick={() => setBudgetModal(true)}><Plus size={17} /> Limite</button><button className="primary-button" onClick={() => setGoalModal(true)}><Plus size={17} /> Nova meta</button></div></div>
-          <div className="planning-grid"><article className="panel"><div className="panel-head"><div><span className="eyebrow">Orçamento mensal</span><h2>Limites por categoria</h2></div><button className="icon-button" onClick={() => setBudgetModal(true)}><Plus /></button></div><div className="budget-list">{budgets.map(budget => {
+          <IntegrationMap active={tab} onNavigate={setTab} />
+          <div className="planning-grid"><article className="panel"><div className="panel-head"><div><span className="eyebrow">Orçamento mensal</span><h2>Limites por categoria</h2></div><button className="icon-button" onClick={() => setBudgetModal(true)}><Plus /></button></div><p className="context-note"><Info /> O consumo de cada limite é calculado automaticamente pelas categorias dos Lançamentos no mês selecionado.</p><div className="budget-list">{budgets.map(budget => {
             const category = CATEGORIES.find(item => item.id === budget.category) || CATEGORIES[CATEGORIES.length - 1];
             const spent = monthlyExpenses.filter(item => item.category === budget.category).reduce((sum, item) => sum + item.amount, 0);
             const percentage = budget.amount ? spent / budget.amount * 100 : 0;
@@ -500,8 +602,9 @@ function App() {
 
         {tab === 'settings' && <section className="page-section settings-page">
           <div className="page-title"><div><span className="eyebrow">Personalização e dados</span><h1>Ajustes</h1><p>Configure o DuoFinance para a sua rotina.</p></div></div>
+          <IntegrationMap active={tab} onNavigate={setTab} />
           <div className="settings-grid"><article className="panel"><div className="panel-head"><div><span className="eyebrow">Seu espaço</span><h2>Perfil de uso</h2></div><UserIcon /></div><form className="form-grid" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); save({ settings: { ...settings, householdName: String(form.get('householdName')), responsibleName: String(form.get('responsibleName')), mode: String(form.get('mode')) } }, 'Perfil atualizado.'); }}><Field label="Nome do espaço"><input name="householdName" defaultValue={settings.householdName} required placeholder="Ex: Casa Silva" /></Field><Field label="Responsável pelos lançamentos"><input name="responsibleName" defaultValue={profileName} required /></Field><Field label="Como você usa o app?" className="full"><select name="mode" defaultValue={settings.mode}><option value="INDIVIDUAL">Controle individual</option><option value="HOUSEHOLD">Controle da casa / casal</option></select></Field><button className="primary-button" type="submit">Salvar perfil</button></form></article>
-          <article className="panel"><div className="panel-head"><div><span className="eyebrow">Entradas recorrentes</span><h2>Receitas mensais</h2></div><button className="icon-button" onClick={() => setIncomeModal('new')}><Plus /></button></div><div className="income-list">{incomes.map(income => <div key={income.id}><div className="metric-icon green"><ArrowUpRight /></div><div><b>{income.name}</b><span>Todo dia {income.day}</span></div><strong>{money(income.amount, hidden)}</strong><button onClick={() => setIncomeModal(income)}><Pencil /></button><button onClick={() => window.confirm('Excluir esta receita mensal?') && save({ incomes: incomes.filter(item => item.id !== income.id) })}><Trash2 /></button></div>)}</div>{!incomes.length && <EmptyState icon={<CircleDollarSign />} title="Cadastre sua renda" text="Salários e outras entradas recorrentes entram automaticamente na projeção mensal." />}<button className="soft-button wide" onClick={() => setIncomeModal('new')}><Plus size={17} /> Adicionar receita mensal</button></article>
+          <article className="panel"><div className="panel-head"><div><span className="eyebrow">Entradas recorrentes</span><h2>Receitas mensais</h2></div><button className="icon-button" onClick={() => setIncomeModal('new')}><Plus /></button></div><p className="context-note"><Info /> Estas receitas formam a base de entradas de todos os meses no Dashboard e no gráfico histórico.</p><div className="income-list">{incomes.map(income => <div key={income.id}><div className="metric-icon green"><ArrowUpRight /></div><div><b>{income.name}</b><span>Todo dia {income.day}</span></div><strong>{money(income.amount, hidden)}</strong><button onClick={() => setIncomeModal(income)}><Pencil /></button><button onClick={() => window.confirm('Excluir esta receita mensal?') && save({ incomes: incomes.filter(item => item.id !== income.id) })}><Trash2 /></button></div>)}</div>{!incomes.length && <EmptyState icon={<CircleDollarSign />} title="Cadastre sua renda" text="Salários e outras entradas recorrentes entram automaticamente na projeção mensal." />}<button className="soft-button wide" onClick={() => setIncomeModal('new')}><Plus size={17} /> Adicionar receita mensal</button></article>
           <article className="panel"><div className="panel-head"><div><span className="eyebrow">Portabilidade</span><h2>Seus dados</h2></div><ShieldCheck /></div><p className="panel-copy">Mantenha uma cópia dos dados ou leve seus lançamentos para uma planilha.</p><div className="data-actions"><button onClick={exportBackup}><Download /> Baixar backup <span>Arquivo completo .json</span></button><button onClick={exportCsv}><FileDown /> Exportar planilha <span>Lançamentos em .csv</span></button><button onClick={() => importRef.current?.click()}><ArrowUpRight /> Restaurar backup <span>Substitui os dados atuais</span></button><input ref={importRef} hidden type="file" accept="application/json" onChange={importBackup} /></div></article>
           <article className="panel"><div className="panel-head"><div><span className="eyebrow">Aplicativo</span><h2>Preferências</h2></div><Settings /></div><div className="preference-list"><button onClick={() => save({ settings: { ...settings, hideValues: !hidden } })}><div>{hidden ? <EyeOff /> : <Eye />}<span><b>Privacidade dos valores</b><small>{hidden ? 'Valores ocultos' : 'Valores visíveis'}</small></span></div><i className={`switch ${hidden ? 'on' : ''}`} /></button>{!standalone && <button onClick={installApp}><div><Smartphone /><span><b>Instalar DuoFinance</b><small>Acesso rápido na tela inicial</small></span></div><ArrowRight /></button>}<div className="version"><span>Versão 2.0</span><span>Sincronização ativa</span></div></div></article></div>
         </section>}
@@ -512,7 +615,7 @@ function App() {
 
     {transactionModal && <TransactionModal transaction={editingTransaction} onClose={() => { setTransactionModal(false); setEditingTransaction(null); }} onSubmit={submitTransaction} />}
     {goalModal && <Modal title="Nova meta financeira" subtitle="Transforme um plano em um valor alcançável." onClose={() => setGoalModal(false)}><form className="form-grid" onSubmit={submitGoal}><Field label="Nome da meta" className="full"><input name="name" required placeholder="Ex: Reserva de emergência" /></Field><Field label="Valor desejado"><input name="target" type="number" min="0.01" step="0.01" required placeholder="R$ 0,00" /></Field><Field label="Já tenho"><input name="current" type="number" min="0" step="0.01" placeholder="R$ 0,00" /></Field><Field label="Aporte mensal"><input name="monthly" type="number" min="0" step="0.01" placeholder="R$ 0,00" /></Field><Field label="Prazo desejado"><input name="deadline" type="date" /></Field><Field label="Cor" className="full"><div className="color-picker">{GOAL_COLORS.map((color, index) => <label key={color}><input type="radio" name="color" value={color} defaultChecked={index === 0} /><i style={{ background: color }} /></label>)}</div></Field><div className="modal-actions full"><button type="button" className="ghost-button" onClick={() => setGoalModal(false)}>Cancelar</button><button className="primary-button" type="submit">Criar meta</button></div></form></Modal>}
-    {contributionGoal && <Modal title="Registrar aporte" subtitle={contributionGoal.name} onClose={() => setContributionGoal(null)}><form className="form-stack" onSubmit={addContribution}><div className="contribution-summary"><span>Acumulado atual</span><strong>{money(contributionGoal.currentAmount, hidden)}</strong><Progress value={contributionGoal.currentAmount / contributionGoal.targetAmount * 100} color={contributionGoal.color} /></div><Field label="Valor do aporte"><input name="amount" autoFocus type="number" min="0.01" max={Math.max(0.01, contributionGoal.targetAmount - contributionGoal.currentAmount)} step="0.01" required placeholder="R$ 0,00" /></Field><button className="primary-button wide" type="submit">Confirmar aporte</button></form></Modal>}
+    {contributionGoal && <Modal title="Registrar aporte" subtitle={contributionGoal.name} onClose={() => setContributionGoal(null)}><form className="form-stack" onSubmit={addContribution}><div className="contribution-summary"><span>Acumulado atual</span><strong>{money(contributionGoal.currentAmount, hidden)}</strong><Progress value={contributionGoal.currentAmount / contributionGoal.targetAmount * 100} color={contributionGoal.color} /></div><Field label="Valor do aporte"><input name="amount" autoFocus type="number" min="0.01" max={Math.max(0.01, contributionGoal.targetAmount - contributionGoal.currentAmount)} step="0.01" required placeholder="R$ 0,00" /></Field><p className="impact-note"><Info /> O aporte aumentará esta meta e será criado como uma saída confirmada em Lançamentos, atualizando saldo e gráficos de {monthLabel(selectedMonth)}.</p><button className="primary-button wide" type="submit">Confirmar aporte</button></form></Modal>}
     {budgetModal && <Modal title="Limite por categoria" subtitle="Defina quanto pretende gastar por mês." onClose={() => setBudgetModal(false)}><form className="form-stack" onSubmit={submitBudget}><Field label="Categoria"><select name="category" required>{CATEGORIES.map(category => <option value={category.id} key={category.id}>{category.name}</option>)}</select></Field><Field label="Limite mensal"><input name="amount" type="number" min="0.01" step="0.01" required placeholder="R$ 0,00" /></Field><button className="primary-button wide" type="submit">Salvar limite</button></form></Modal>}
     {incomeModal && <Modal title={incomeModal === 'new' ? 'Nova receita mensal' : 'Editar receita mensal'} subtitle="Ela será considerada em todos os meses." onClose={() => setIncomeModal(null)}><form className="form-stack" onSubmit={submitIncome}><Field label="Descrição"><input name="name" required defaultValue={incomeModal === 'new' ? '' : incomeModal.name} placeholder="Ex: Salário" /></Field><div className="form-grid"><Field label="Valor líquido"><input name="amount" type="number" min="0.01" step="0.01" required defaultValue={incomeModal === 'new' ? '' : incomeModal.amount} /></Field><Field label="Dia do recebimento"><input name="day" type="number" min="1" max="31" required defaultValue={incomeModal === 'new' ? 5 : incomeModal.day} /></Field></div><button className="primary-button wide" type="submit">Salvar receita</button></form></Modal>}
     {installHelp && <Modal title="Instale o DuoFinance" subtitle="Tenha acesso rápido como um aplicativo." onClose={() => setInstallHelp(false)}><div className="install-steps"><div><b>1</b><span>No navegador, abra o menu de compartilhamento ou os três pontos.</span></div><div><b>2</b><span>Escolha “Adicionar à tela de início” ou “Instalar aplicativo”.</span></div><div><b>3</b><span>Confirme para criar o atalho no seu celular ou computador.</span></div></div><button className="primary-button wide" onClick={() => setInstallHelp(false)}>Entendi</button></Modal>}
@@ -525,7 +628,7 @@ function TransactionModal({ transaction, onClose, onSubmit }: {
 }) {
   const [kind, setKind] = useState<TransactionKind>(transaction?.kind || 'EXPENSE');
   const [type, setType] = useState<TransactionType>(transaction?.type || 'VARIABLE');
-  return <Modal title={transaction ? 'Editar lançamento' : 'Novo lançamento'} subtitle="Registre em poucos segundos. Você pode editar depois." onClose={onClose}><form className="form-grid transaction-form" onSubmit={onSubmit}><div className="segmented full"><label><input type="radio" name="kind" value="EXPENSE" checked={kind === 'EXPENSE'} onChange={() => setKind('EXPENSE')} /><span><ArrowDownRight /> Despesa</span></label><label><input type="radio" name="kind" value="INCOME" checked={kind === 'INCOME'} onChange={() => { setKind('INCOME'); setType('VARIABLE'); }} /><span><ArrowUpRight /> Receita extra</span></label></div><Field label="Descrição" className="full"><input name="name" required defaultValue={transaction?.name.replace(/ \(\d+\/\d+\)$/, '')} placeholder={kind === 'EXPENSE' ? 'Ex: Supermercado' : 'Ex: Trabalho extra'} autoFocus /></Field><Field label="Valor"><input name="amount" type="number" min="0.01" step="0.01" required defaultValue={transaction?.amount} placeholder="R$ 0,00" /></Field><Field label="Data"><input name="date" type="date" required defaultValue={transaction ? transaction.date.slice(0, 10) : dateInputValue()} /></Field><Field label="Categoria"><select name="category" defaultValue={transaction?.category}>{(kind === 'EXPENSE' ? CATEGORIES : INCOME_CATEGORIES).map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></Field><Field label="Forma de pagamento"><select name="paymentMethod" defaultValue={transaction?.paymentMethod || 'PIX'} disabled={kind === 'INCOME'}>{PAYMENT_METHODS.map(method => <option key={method.id} value={method.id}>{method.name}</option>)}</select></Field>{kind === 'EXPENSE' && <Field label="Frequência" className="full"><div className="type-options">{([['VARIABLE', 'Única'], ['FIXED', 'Recorrente'], ['INSTALLMENT', 'Parcelada']] as const).map(option => <label key={option[0]}><input type="radio" name="type" value={option[0]} checked={type === option[0]} disabled={Boolean(transaction?.parentId)} onChange={() => setType(option[0])} /><span>{option[0] === 'FIXED' && <Repeat2 />}{option[1]}</span></label>)}</div></Field>}{kind === 'INCOME' && <input type="hidden" name="type" value="VARIABLE" />}{type === 'INSTALLMENT' && !transaction && <Field label="Quantidade de parcelas" hint="O valor total será dividido" className="full"><input name="installments" type="number" min="2" max="120" defaultValue="2" required /></Field>}<Field label="Tags" hint="Separe por vírgula" className="full"><input name="tags" defaultValue={transaction?.tags?.join(', ')} placeholder="Ex: essencial, trabalho" /></Field><Field label="Observações" className="full"><textarea name="notes" defaultValue={transaction?.notes} rows={3} placeholder="Detalhes opcionais" /></Field><label className="check-field full"><input name="isPaid" type="checkbox" defaultChecked={transaction?.isPaid} /><span><Check /> Já foi {kind === 'EXPENSE' ? 'pago' : 'recebido'}</span></label><div className="modal-actions full"><button type="button" className="ghost-button" onClick={onClose}>Cancelar</button><button className="primary-button" type="submit">{transaction ? 'Salvar alterações' : 'Adicionar lançamento'}</button></div></form></Modal>;
+  return <Modal title={transaction ? 'Editar lançamento' : 'Novo lançamento'} subtitle="Registre em poucos segundos. Você pode editar depois." onClose={onClose}><form className="form-grid transaction-form" onSubmit={onSubmit}><div className="segmented full"><label><input type="radio" name="kind" value="EXPENSE" checked={kind === 'EXPENSE'} onChange={() => setKind('EXPENSE')} /><span><ArrowDownRight /> Despesa</span></label><label><input type="radio" name="kind" value="INCOME" checked={kind === 'INCOME'} onChange={() => { setKind('INCOME'); setType('VARIABLE'); }} /><span><ArrowUpRight /> Receita extra</span></label></div><Field label="Descrição" className="full"><input name="name" required defaultValue={transaction?.name.replace(/ \(\d+\/\d+\)$/, '')} placeholder={kind === 'EXPENSE' ? 'Ex: Supermercado' : 'Ex: Trabalho extra'} autoFocus /></Field><Field label="Valor"><input name="amount" type="number" min="0.01" step="0.01" required defaultValue={transaction?.amount} placeholder="R$ 0,00" /></Field><Field label="Data"><input name="date" type="date" required defaultValue={transaction ? transaction.date.slice(0, 10) : dateInputValue()} /></Field><Field label="Categoria"><select name="category" defaultValue={transaction?.category} disabled={Boolean(transaction?.goalId)}>{(kind === 'EXPENSE' ? CATEGORIES : INCOME_CATEGORIES).map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></Field><Field label="Forma de pagamento"><select name="paymentMethod" defaultValue={transaction?.paymentMethod || 'PIX'} disabled={kind === 'INCOME'}>{PAYMENT_METHODS.map(method => <option key={method.id} value={method.id}>{method.name}</option>)}</select></Field>{kind === 'EXPENSE' && <Field label="Frequência" className="full"><div className="type-options">{([['VARIABLE', 'Única'], ['FIXED', 'Recorrente'], ['INSTALLMENT', 'Parcelada']] as const).map(option => <label key={option[0]}><input type="radio" name="type" value={option[0]} checked={type === option[0]} disabled={Boolean(transaction?.parentId || transaction?.goalId)} onChange={() => setType(option[0])} /><span>{option[0] === 'FIXED' && <Repeat2 />}{option[1]}</span></label>)}</div></Field>}{kind === 'INCOME' && <input type="hidden" name="type" value="VARIABLE" />}{type === 'INSTALLMENT' && !transaction && <Field label="Quantidade de parcelas" hint="O valor total será dividido" className="full"><input name="installments" type="number" min="2" max="120" defaultValue="2" required /></Field>}<Field label="Tags" hint="Separe por vírgula" className="full"><input name="tags" defaultValue={transaction?.tags?.join(', ')} placeholder="Ex: essencial, trabalho" /></Field><Field label="Observações" className="full"><textarea name="notes" defaultValue={transaction?.notes} rows={3} placeholder="Detalhes opcionais" /></Field><label className="check-field full"><input name="isPaid" type="checkbox" defaultChecked={transaction?.isPaid} /><span><Check /> Já foi {kind === 'EXPENSE' ? 'pago' : 'recebido'}</span></label><p className="impact-note full"><Info /> {transaction?.goalId ? 'Este lançamento está vinculado a uma meta. Alterar seu valor atualizará também o progresso do objetivo.' : 'Ao salvar, Dashboard, gráficos e limites da categoria serão recalculados automaticamente.'}</p><div className="modal-actions full"><button type="button" className="ghost-button" onClick={onClose}>Cancelar</button><button className="primary-button" type="submit">{transaction ? 'Salvar alterações' : 'Adicionar lançamento'}</button></div></form></Modal>;
 }
 
 function Toast({ toast }: { toast: Exclude<ToastState, null> }) {

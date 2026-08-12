@@ -11,6 +11,7 @@ export const CATEGORIES = [
   { id: 'shopping', name: 'Compras', icon: 'ShoppingBag', color: '#4f46e5' },
   { id: 'subscriptions', name: 'Assinaturas', icon: 'Repeat2', color: '#9333ea' },
   { id: 'taxes', name: 'Impostos', icon: 'Landmark', color: '#475569' },
+  { id: 'goals', name: 'Metas e reservas', icon: 'PiggyBank', color: '#059669' },
   { id: 'others', name: 'Outros', icon: 'Package', color: '#64748b' },
 ] as const;
 
