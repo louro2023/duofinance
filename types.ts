@@ -11,6 +11,16 @@ export interface User {
   role?: 'OWNER' | 'MEMBER';
 }
 
+export interface Account {
+  id: string;
+  name: string;
+  email: string;
+  role: 'ADMIN' | 'USER';
+  workspaceId: string;
+  active: boolean;
+  createdAt: string;
+}
+
 export interface Income {
   id: string;
   userId: string;

@@ -1,7 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { initializeApp } from 'firebase/app';
-import { getDatabase, onValue, ref, update } from 'firebase/database';
 import {
   AlertTriangle, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, BellRing, CalendarDays,
   Check, ChevronDown, CircleDollarSign, Download, Eye, EyeOff, FileDown, Info,
@@ -11,24 +9,15 @@ import {
 } from 'lucide-react';
 import type {
   AppSettings, CategoryBudget, Income, PaymentMethod, SavingsGoal, Transaction, TransactionKind,
-  TransactionType, User
+  TransactionType, Account
 } from './types.ts';
 import { CATEGORIES, GOAL_COLORS, INCOME_CATEGORIES, PAYMENT_METHODS } from './constants.tsx';
 import './index.css';
 
-const firebaseConfig = {
-  apiKey: 'AIzaSyD4MW7KAeVC3h73G0tnGxb9RzQsJ-o6Mco',
-  authDomain: 'duofinance-5b1d8.firebaseapp.com',
-  projectId: 'duofinance-5b1d8',
-  storageBucket: 'duofinance-5b1d8.firebasestorage.app',
-  messagingSenderId: '1031506294790',
-  appId: '1:1031506294790:web:d9c9851a48ec0ded616b87',
-  databaseURL: 'https://duofinance-5b1d8-default-rtdb.firebaseio.com/'
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-const DB_PATH = 'projects/duofinance';
+const FINANCE_API = '/api/finance';
+const AUTH_API = '/api/auth';
+const ADMIN_API = '/api/admin';
+const TOKEN_KEY = 'duofinance_token';
 const DEFAULT_SETTINGS: AppSettings = {
   householdName: 'Meu espaço', responsibleName: '', mode: 'INDIVIDUAL', hideValues: false
 };
@@ -54,11 +43,6 @@ const shortDate = (value: string) => new Intl.DateTimeFormat('pt-BR', {
   day: '2-digit', month: 'short'
 }).format(new Date(value));
 const normalizeText = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-const hashPassword = async (password: string) => {
-  if (!crypto?.subtle) return password;
-  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password));
-  return `sha256:${Array.from(new Uint8Array(bytes)).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
-};
 
 type Tab = 'dashboard' | 'transactions' | 'planning' | 'settings';
 type ToastState = { message: string; tone?: 'success' | 'error' } | null;
@@ -119,7 +103,7 @@ const TAB_EXPLANATIONS: Record<Tab, { title: string; text: string }> = {
   }
 };
 const FILL_GUIDANCE: Record<Tab, { title: string; intro: string; items: string[] }> = {
-  settings: { title: 'Como preencher os Ajustes', intro: 'Prepare a base antes de lançar despesas.', items: ['Informe o nome do espaço e quem será o responsável.', 'Cadastre salário e outras receitas que se repetem todo mês.', 'Se desejar, crie acessos para outras pessoas da casa.'] },
+  settings: { title: 'Como preencher os Ajustes', intro: 'Prepare a base antes de lançar despesas.', items: ['Informe o nome do seu espaço e quem será o responsável pelos lançamentos.', 'Cadastre salário e outras receitas que se repetem todo mês.', 'Sua conta é individual; novos acessos e senhas são gerenciados pelo administrador geral.'] },
   planning: { title: 'Como montar o Planejamento', intro: 'Use valores realistas que possam ser acompanhados no mês.', items: ['Crie limites para categorias importantes, como alimentação e moradia.', 'Cadastre metas, valor desejado, prazo e aporte mensal.', 'Os limites serão consumidos quando você adicionar despesas nos Lançamentos.'] },
   transactions: { title: 'Como registrar Lançamentos', intro: 'Registre entradas e saídas conforme elas acontecerem.', items: ['Escolha receita extra ou despesa e informe descrição, valor e data.', 'Selecione a categoria correta para organizar limites e gráficos.', 'Use recorrente para contas mensais, parcelada para compras a prazo e confirme quando pagar ou receber.'] },
   dashboard: { title: 'Como interpretar a Visão geral', intro: 'Aqui você acompanha o resultado do que foi preenchido.', items: ['Saldo projetado considera receitas, despesas e reservas ainda não realizadas.', 'Pendências mostram o que ainda precisa ser pago no mês.', 'Os gráficos agrupam lançamentos por categoria e comparam os últimos seis meses.'] }
@@ -147,16 +131,93 @@ function FillGuide({ tab }: { tab: Tab }) {
   return <details className="fill-guide" open={tab === 'settings'}><summary><div><Sparkles /><span><b>{guide.title}</b><small>{guide.intro}</small></span></div><ChevronDown /></summary><ol>{guide.items.map(item => <li key={item}>{item}</li>)}</ol></details>;
 }
 
+function AdminEnvironment({ account, onLogout, onOpenFinance }: { account: Account; onLogout: () => void; onOpenFinance: () => void }) {
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [createModal, setCreateModal] = useState(false);
+  const [passwordAccount, setPasswordAccount] = useState<Account | null>(null);
+  const [toast, setToast] = useState<ToastState>(null);
+  const token = localStorage.getItem(TOKEN_KEY) || '';
+  const users = accounts.filter(item => item.role === 'USER');
+  const notify = (message: string, tone: 'success' | 'error' = 'success') => setToast({ message, tone });
+
+  const request = async (method = 'GET', body?: Record<string, unknown>) => {
+    const response = await fetch(ADMIN_API, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+      cache: 'no-store'
+    });
+    const data = response.status === 204 ? {} : await response.json().catch(() => ({}));
+    if (response.status === 401) { onLogout(); throw new Error('Sessão expirada.'); }
+    if (!response.ok) throw new Error(data.error || 'Não foi possível concluir a operação.');
+    return data;
+  };
+
+  const loadAccounts = useCallback(async () => {
+    try { setAccounts((await request()).accounts || []); }
+    catch (error) { notify(error instanceof Error ? error.message : 'Erro ao carregar usuários.', 'error'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const createUser = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      await request('POST', { name: String(form.get('name')), email: String(form.get('email')), password: String(form.get('password')) });
+      setCreateModal(false); await loadAccounts(); notify('Usuário criado com um ambiente financeiro vazio.');
+    } catch (error) { notify(error instanceof Error ? error.message : 'Erro ao criar usuário.', 'error'); }
+  };
+
+  const resetPassword = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!passwordAccount) return;
+    const password = String(new FormData(event.currentTarget).get('password'));
+    try {
+      await request('PATCH', { action: 'resetPassword', accountId: passwordAccount.id, password });
+      setPasswordAccount(null); notify('Senha redefinida. As sessões antigas foram encerradas.');
+    } catch (error) { notify(error instanceof Error ? error.message : 'Erro ao redefinir senha.', 'error'); }
+  };
+
+  const toggleUser = async (user: Account) => {
+    try { await request('PATCH', { action: 'toggleActive', accountId: user.id }); await loadAccounts(); notify(user.active ? 'Acesso suspenso.' : 'Acesso reativado.'); }
+    catch (error) { notify(error instanceof Error ? error.message : 'Erro ao alterar acesso.', 'error'); }
+  };
+
+  return <div className="admin-shell">
+    <header className="admin-topbar"><div className="brand-line"><div className="brand-mark"><WalletCards /></div><b>DuoFinance</b><span>Administração geral</span></div><div className="admin-profile"><div className="avatar">{account.name.charAt(0).toUpperCase()}</div><div><b>{account.name}</b><span>Administrador geral</span></div><button className="icon-button" onClick={onLogout} aria-label="Sair"><LogOut /></button></div></header>
+    <main className="admin-content">
+      <section className="admin-welcome"><div><span className="eyebrow">Central de acessos</span><h1>Usuários do DuoFinance</h1><p>Crie contas independentes. Cada pessoa recebe um espaço financeiro vazio e privado, sem acesso aos dados dos demais usuários.</p></div><div className="admin-welcome-actions"><button className="soft-button" onClick={onOpenFinance}><LayoutDashboard /> Minhas finanças</button><button className="primary-button" onClick={() => setCreateModal(true)}><UserPlus /> Novo usuário</button></div></section>
+      <section className="admin-metrics"><article><UserIcon /><div><strong>{users.length}</strong><span>usuários cadastrados</span></div></article><article><ShieldCheck /><div><strong>{users.filter(user => user.active).length}</strong><span>acessos ativos</span></div></article><article><WalletCards /><div><strong>{users.length}</strong><span>ambientes isolados</span></div></article></section>
+      <section className="panel admin-users"><div className="panel-head"><div><span className="eyebrow">Gerenciamento</span><h2>Contas de usuários</h2></div></div>
+        <div className="admin-note"><Info /><span>O administrador gerencia credenciais, mas os lançamentos e valores de cada usuário permanecem separados em seu próprio ambiente.</span></div>
+        {loading ? <div className="loader" /> : users.length ? <div className="admin-user-list">{users.map(user => <article key={user.id} className={!user.active ? 'inactive' : ''}><div className="avatar">{user.name.charAt(0).toUpperCase()}</div><div className="admin-user-copy"><b>{user.name}</b><span>{user.email}</span><small>Criado em {new Intl.DateTimeFormat('pt-BR').format(new Date(user.createdAt))}</small></div><em className={user.active ? 'active' : ''}>{user.active ? 'Ativo' : 'Suspenso'}</em><div className="admin-user-actions"><button className="soft-button" onClick={() => setPasswordAccount(user)}><RotateCcw /> Redefinir senha</button><button className="ghost-button" onClick={() => toggleUser(user)}>{user.active ? 'Suspender' : 'Reativar'}</button></div></article>)}</div> : <EmptyState icon={<UserPlus />} title="Nenhum usuário cadastrado" text="Crie o primeiro acesso para entregar um ambiente financeiro novo e independente." action={<button className="primary-button" onClick={() => setCreateModal(true)}>Criar usuário</button>} />}
+      </section>
+    </main>
+    {createModal && <Modal title="Criar novo usuário" subtitle="Será criado um ambiente financeiro exclusivo e vazio." onClose={() => setCreateModal(false)}><form className="form-stack" onSubmit={createUser}><Field label="Nome"><input name="name" required minLength={2} autoComplete="name" /></Field><Field label="E-mail de acesso"><input name="email" type="email" required autoComplete="email" /></Field><Field label="Senha inicial" hint="Mínimo de 6 caracteres"><input name="password" type="password" required minLength={6} autoComplete="new-password" /></Field><div className="modal-actions"><button type="button" className="ghost-button" onClick={() => setCreateModal(false)}>Cancelar</button><button className="primary-button" type="submit"><UserPlus /> Criar usuário</button></div></form></Modal>}
+    {passwordAccount && <Modal title="Redefinir senha" subtitle={`Defina uma nova senha para ${passwordAccount.name}.`} onClose={() => setPasswordAccount(null)}><form className="form-stack" onSubmit={resetPassword}><div className="admin-note"><ShieldCheck /><span>Após a redefinição, todas as sessões antigas deste usuário serão encerradas.</span></div><Field label="Nova senha" hint="Mínimo de 6 caracteres"><input name="password" type="password" required minLength={6} autoComplete="new-password" autoFocus /></Field><div className="modal-actions"><button type="button" className="ghost-button" onClick={() => setPasswordAccount(null)}>Cancelar</button><button className="primary-button" type="submit">Salvar nova senha</button></div></form></Modal>}
+    {toast && <Toast toast={toast} />}
+  </div>;
+}
+
 function App() {
   const [loading, setLoading] = useState(true);
   const [syncError, setSyncError] = useState('');
-  const [users, setUsers] = useState<User[]>([]);
+  const [account, setAccount] = useState<Account | null>(null);
+  const [bootstrapRequired, setBootstrapRequired] = useState(false);
+  const [adminMode, setAdminMode] = useState(true);
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
   const [budgets, setBudgets] = useState<CategoryBudget[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [sessionUserId, setSessionUserId] = useState(() => localStorage.getItem('duofinance_session') || '');
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [tab, setTab] = useState<Tab>('dashboard');
   const [transactionModal, setTransactionModal] = useState(false);
@@ -165,10 +226,8 @@ function App() {
   const [contributionGoal, setContributionGoal] = useState<SavingsGoal | null>(null);
   const [budgetModal, setBudgetModal] = useState(false);
   const [incomeModal, setIncomeModal] = useState<Income | null | 'new'>(null);
-  const [userModal, setUserModal] = useState(false);
   const [resetModal, setResetModal] = useState(false);
   const [installHelp, setInstallHelp] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [standalone, setStandalone] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
   const [search, setSearch] = useState('');
@@ -179,29 +238,72 @@ function App() {
 
   const notify = (message: string, tone: 'success' | 'error' = 'success') => setToast({ message, tone });
 
-  useEffect(() => {
-    const unsubscribe = onValue(ref(db, DB_PATH), snapshot => {
-      const data = snapshot.val() || {};
-      setUsers(ensureArray<User>(data.users));
-      setIncomes(ensureArray<Income>(data.incomes).map(item => ({ ...item, active: item.active !== false })));
-      setTransactions(ensureArray<Transaction>(data.transactions).map(item => ({
-        ...item, kind: item.kind || 'EXPENSE', isPaid: item.isPaid ?? false
-      })));
-      setGoals(ensureArray<SavingsGoal>(data.goals));
-      setBudgets(ensureArray<CategoryBudget>(data.budgets));
-      setSettings({ ...DEFAULT_SETTINGS, ...(data.settings || {}) });
-      setLoading(false);
-      setSyncError('');
-    }, error => {
-      console.error(error);
-      setSyncError('Não foi possível sincronizar com a nuvem. Verifique sua conexão.');
-      setLoading(false);
-    });
-    const install = (event: Event) => { event.preventDefault(); setDeferredPrompt(event); };
-    window.addEventListener('beforeinstallprompt', install);
-    setStandalone(window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as any).standalone));
-    return () => { unsubscribe(); window.removeEventListener('beforeinstallprompt', install); };
+  const applyData = useCallback((data: any, partial = false) => {
+    if (!partial || Object.hasOwn(data, 'incomes')) setIncomes(ensureArray<Income>(data?.incomes).map(item => ({ ...item, active: item.active !== false })));
+    if (!partial || Object.hasOwn(data, 'transactions')) setTransactions(ensureArray<Transaction>(data?.transactions).map(item => ({ ...item, kind: item.kind || 'EXPENSE', isPaid: item.isPaid ?? false })));
+    if (!partial || Object.hasOwn(data, 'goals')) setGoals(ensureArray<SavingsGoal>(data?.goals));
+    if (!partial || Object.hasOwn(data, 'budgets')) setBudgets(ensureArray<CategoryBudget>(data?.budgets));
+    if (!partial || Object.hasOwn(data, 'settings')) setSettings({ ...DEFAULT_SETTINGS, ...(data?.settings || {}) });
   }, []);
+
+  const loadData = useCallback(async (silent = false, authToken = localStorage.getItem(TOKEN_KEY) || '', workspaceId = account?.workspaceId || '') => {
+    try {
+      const response = await fetch(FINANCE_API, { cache: 'no-store', headers: { Accept: 'application/json', Authorization: `Bearer ${authToken}` } });
+      if (response.status === 401) throw new Error('UNAUTHORIZED');
+      if (!response.ok) throw new Error(`Sync HTTP ${response.status}`);
+      const data = await response.json();
+      applyData(data || {});
+      if (workspaceId) localStorage.setItem(`duofinance_data_cache_${workspaceId}`, JSON.stringify(data || {}));
+      setSyncError('');
+    } catch (error) {
+      if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+        localStorage.removeItem(TOKEN_KEY); setAccount(null); setSyncError('Sua sessão expirou. Entre novamente.');
+      }
+      const cached = workspaceId ? localStorage.getItem(`duofinance_data_cache_${workspaceId}`) : null;
+      if (cached) {
+        try { applyData(JSON.parse(cached)); } catch { /* cache inválido é ignorado */ }
+      }
+      if (!silent) setSyncError(cached
+        ? 'Sem conexão com a nuvem. Exibindo a última cópia sincronizada.'
+        : 'Não foi possível sincronizar com a nuvem. Verifique sua conexão.');
+    } finally {
+      setLoading(false);
+    }
+  }, [account?.workspaceId, applyData]);
+
+  useEffect(() => {
+    const initialize = async () => {
+      const token = localStorage.getItem(TOKEN_KEY) || '';
+      try {
+        const response = await fetch(AUTH_API, { cache: 'no-store', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        const data = await response.json();
+        setBootstrapRequired(Boolean(data.bootstrapRequired));
+        if (data.account) {
+          setAccount(data.account);
+          if (data.account.role === 'USER') await loadData(false, token, data.account.workspaceId);
+        } else localStorage.removeItem(TOKEN_KEY);
+      } catch { setSyncError('Não foi possível acessar o serviço. Tente novamente.'); }
+      finally { setLoading(false); }
+    };
+    initialize();
+  }, []);
+
+  useEffect(() => {
+    if (account?.role !== 'USER') return;
+    const refresh = () => navigator.onLine && document.visibilityState === 'visible' && loadData(true);
+    const interval = window.setInterval(refresh, 15000);
+    window.addEventListener('online', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    const installed = () => setStandalone(true);
+    window.addEventListener('appinstalled', installed);
+    setStandalone(window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as any).standalone));
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('online', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('appinstalled', installed);
+    };
+  }, [account?.role, loadData]);
 
   useEffect(() => {
     if (!toast) return;
@@ -209,9 +311,19 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (loading || !account?.workspaceId) return;
+    localStorage.setItem(`duofinance_data_cache_${account.workspaceId}`, JSON.stringify({ incomes, transactions, goals, budgets, settings }));
+  }, [loading, account?.workspaceId, incomes, transactions, goals, budgets, settings]);
+
   const save = async (changes: Record<string, unknown>, successMessage?: string) => {
     try {
-      await update(ref(db, DB_PATH), changes);
+      const response = await fetch(FINANCE_API, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY) || ''}` }, body: JSON.stringify(changes)
+      });
+      if (!response.ok) throw new Error(`Sync HTTP ${response.status}`);
+      applyData(changes, true);
+      window.setTimeout(() => loadData(true), 0);
       if (successMessage) notify(successMessage);
     } catch (error) {
       console.error(error);
@@ -219,8 +331,7 @@ function App() {
     }
   };
 
-  const currentUser = users.find(user => user.id === sessionUserId) || null;
-  const loggedIn = Boolean(currentUser);
+  const currentUser = account;
   const guideCompletion: Record<Tab, boolean> = {
     settings: incomes.length > 0,
     planning: budgets.length > 0 || goals.length > 0,
@@ -310,34 +421,25 @@ function App() {
   const handleAccess = async (event: React.FormEvent<HTMLFormElement>, setup: boolean) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const email = String(form.get('email') || '').trim().toLowerCase();
-    const password = String(form.get('password') || '');
-    if (setup) {
-      const name = String(form.get('name') || '').trim();
-      const newUser: User = { id: id(), name, email, password: await hashPassword(password), role: 'OWNER' };
-      const initialSettings = { ...DEFAULT_SETTINGS, responsibleName: name, householdName: name };
-      await save({ users: [newUser], settings: initialSettings });
-      localStorage.setItem('duofinance_session', newUser.id);
-      setSessionUserId(newUser.id);
-      notify('Seu espaço foi criado. Bem-vindo!');
-      return;
-    }
-    const candidate = users.find(user => user.email.toLowerCase() === email);
-    const passwordHash = await hashPassword(password);
-    if (!candidate || (candidate.password !== password && candidate.password !== passwordHash)) {
-      notify('E-mail ou senha incorretos.', 'error');
-      return;
-    }
-    if (candidate.password && !candidate.password.startsWith('sha256:')) {
-      await save({ users: users.map(user => user.id === candidate.id ? { ...user, password: passwordHash } : user) });
-    }
-    localStorage.setItem('duofinance_session', candidate.id);
-    setSessionUserId(candidate.id);
+    try {
+      const response = await fetch(AUTH_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: setup ? 'bootstrap' : 'login', name: String(form.get('name') || ''), email: String(form.get('email') || ''), password: String(form.get('password') || '') }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Não foi possível entrar.');
+      localStorage.setItem(TOKEN_KEY, data.token);
+      localStorage.removeItem('duofinance_session');
+      setAccount(data.account);
+      setBootstrapRequired(false);
+      if (data.account.role === 'USER') await loadData(false, data.token, data.account.workspaceId);
+      notify(setup ? 'Administrador geral criado com sucesso.' : 'Acesso realizado.');
+    } catch (error) { notify(error instanceof Error ? error.message : 'Não foi possível entrar.', 'error'); }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    const token = localStorage.getItem(TOKEN_KEY) || '';
+    fetch(AUTH_API, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ action: 'logout' }) }).catch(() => undefined);
+    localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem('duofinance_session');
-    setSessionUserId('');
+    setAccount(null);
   };
 
   const submitTransaction = (event: React.FormEvent<HTMLFormElement>) => {
@@ -475,52 +577,12 @@ function App() {
     setIncomeModal(null);
   };
 
-  const submitUser = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (currentUser?.role === 'MEMBER') return;
-    const form = new FormData(event.currentTarget);
-    const name = String(form.get('name') || '').trim();
-    const email = String(form.get('email') || '').trim().toLowerCase();
-    const password = String(form.get('password') || '');
-    if (users.some(user => user.email.toLowerCase() === email)) {
-      notify('Já existe um usuário com este e-mail.', 'error');
-      return;
-    }
-    const newUser: User = { id: id(), name, email, password: await hashPassword(password), role: 'MEMBER' };
-    await save({ users: [...users, newUser] }, 'Novo acesso criado.');
-    setUserModal(false);
-  };
-
-  const removeUser = async (user: User) => {
-    if (user.id === currentUser?.id || user.role === 'OWNER') return;
-    if (!window.confirm(`Remover o acesso de ${user.name}? Os dados financeiros não serão apagados.`)) return;
-    await save({ users: users.filter(item => item.id !== user.id) }, 'Acesso removido.');
-  };
-
   const resetSystem = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (currentUser?.role === 'MEMBER') return;
     const form = new FormData(event.currentTarget);
-    const scope = String(form.get('scope'));
     const confirmation = String(form.get('confirmation') || '').trim().toUpperCase();
     if (confirmation !== 'RESETAR') {
       notify('Digite RESETAR para confirmar.', 'error');
-      return;
-    }
-    if (scope === 'ALL') {
-      try {
-        await update(ref(db, DB_PATH), {
-          users: null, incomes: null, transactions: null, goals: null, budgets: null, settings: null
-        });
-        localStorage.removeItem(`duofinance_guided_${currentUser?.id}`);
-        localStorage.removeItem('duofinance_session');
-        onboardingRouted.current = '';
-        setSessionUserId('');
-        setResetModal(false);
-      } catch (error) {
-        console.error(error);
-        notify('Não foi possível resetar o sistema.', 'error');
-      }
       return;
     }
     await save({ incomes: null, transactions: null, goals: null, budgets: null }, 'Dados financeiros removidos.');
@@ -532,7 +594,7 @@ function App() {
   };
 
   const exportBackup = () => {
-    const blob = new Blob([JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), users, incomes, transactions, goals, budgets, settings }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ version: 3, exportedAt: new Date().toISOString(), incomes, transactions, goals, budgets, settings }, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob); link.download = `duofinance-backup-${dateInputValue()}.json`; link.click();
     URL.revokeObjectURL(link.href);
@@ -562,16 +624,13 @@ function App() {
   };
 
   const installApp = async () => {
-    if (!deferredPrompt) { setInstallHelp(true); return; }
-    await deferredPrompt.prompt();
-    const choice = await deferredPrompt.userChoice;
-    if (choice.outcome === 'accepted') { setDeferredPrompt(null); setStandalone(true); }
+    setInstallHelp(true);
   };
 
   if (loading) return <div className="splash"><div className="brand-mark"><WalletCards /></div><div className="loader" /><p>Organizando seu espaço financeiro…</p></div>;
 
-  if (!loggedIn) {
-    const setup = users.length === 0;
+  if (!currentUser) {
+    const setup = bootstrapRequired;
     return <div className="auth-page">
       <div className="auth-art">
         <div className="brand-line"><div className="brand-mark"><WalletCards /></div><b>DuoFinance</b></div>
@@ -580,23 +639,24 @@ function App() {
       </div>
       <div className="auth-panel"><div className="auth-card">
         <span className="eyebrow">{setup ? 'Primeiro acesso' : 'Que bom ter você de volta'}</span>
-        <h2>{setup ? 'Crie seu espaço' : 'Acesse sua conta'}</h2>
-        <p>{setup ? 'Você será a pessoa responsável pelos lançamentos e poderá configurar o espaço como individual ou familiar.' : 'Continue de onde parou.'}</p>
+        <h2>{setup ? 'Crie o administrador geral' : 'Acesse sua conta'}</h2>
+        <p>{setup ? 'Este primeiro acesso será exclusivo para cadastrar usuários, redefinir senhas e administrar as contas do sistema.' : 'Entre com o acesso fornecido pelo administrador.'}</p>
         {syncError && <div className="alert error">{syncError}</div>}
         <form onSubmit={event => handleAccess(event, setup)} className="form-stack">
           {setup && <Field label="Seu nome"><input name="name" required placeholder="Como podemos chamar você?" autoComplete="name" /></Field>}
           <Field label="E-mail"><input name="email" type="email" required placeholder="voce@email.com" autoComplete="email" /></Field>
-          <Field label="Senha"><input name="password" type="password" required minLength={4} placeholder="Mínimo de 4 caracteres" autoComplete={setup ? 'new-password' : 'current-password'} /></Field>
-          <button className="primary-button wide" type="submit">{setup ? 'Começar agora' : 'Entrar'} <ArrowRight size={18} /></button>
+          <Field label="Senha"><input name="password" type="password" required minLength={6} placeholder="Mínimo de 6 caracteres" autoComplete={setup ? 'new-password' : 'current-password'} /></Field>
+          <button className="primary-button wide" type="submit">{setup ? 'Criar administrador' : 'Entrar'} <ArrowRight size={18} /></button>
         </form>
       </div></div>
       {toast && <Toast toast={toast} />}
     </div>;
   }
 
+  if (currentUser.role === 'ADMIN' && adminMode) return <AdminEnvironment account={currentUser} onLogout={logout} onOpenFinance={() => { setAdminMode(false); loadData(); }} />;
+
   const hidden = settings.hideValues;
   const profileName = currentUser.name;
-  const isOwner = currentUser.role === 'OWNER' || (!currentUser.role && currentUser.id === users[0]?.id);
   const navItems: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'settings', label: '1. Ajustes', icon: <Settings size={20} /> },
     { id: 'planning', label: '2. Planejamento', icon: <Target size={20} /> },
@@ -608,7 +668,7 @@ function App() {
     <aside className="sidebar">
       <div className="brand-line"><div className="brand-mark"><WalletCards /></div><b>DuoFinance</b></div>
       <nav>{navItems.map(item => <button key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.icon}<span>{item.label}</span></button>)}</nav>
-      <div className="sidebar-foot"><div className="avatar">{profileName.charAt(0).toUpperCase()}</div><div><b>{profileName}</b><span>{settings.mode === 'HOUSEHOLD' ? 'Espaço familiar' : 'Espaço individual'}</span></div><button onClick={logout} aria-label="Sair"><LogOut size={17} /></button></div>
+      <div className="sidebar-foot"><div className="avatar">{profileName.charAt(0).toUpperCase()}</div><div><b>{profileName}</b><span>{currentUser.role === 'ADMIN' ? 'Administrador geral' : settings.mode === 'HOUSEHOLD' ? 'Espaço familiar' : 'Espaço individual'}</span></div><button onClick={currentUser.role === 'ADMIN' ? () => setAdminMode(true) : logout} aria-label={currentUser.role === 'ADMIN' ? 'Voltar à administração' : 'Sair'}>{currentUser.role === 'ADMIN' ? <ShieldCheck size={17} /> : <LogOut size={17} />}</button></div>
     </aside>
 
     <div className="app-main">
@@ -695,12 +755,12 @@ function App() {
           <div className="page-title"><div><span className="eyebrow">Personalização e dados</span><h1>Ajustes</h1><p>Configure o DuoFinance para a sua rotina.</p></div></div>
           <IntegrationMap active={tab} completed={guideCompletion} onNavigate={setTab} />
           <FillGuide tab={tab} />
-          <div className="settings-grid"><article className="panel"><div className="panel-head"><div><span className="eyebrow">Seu espaço</span><h2>Perfil de uso</h2></div><UserIcon /></div><form className="form-grid" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); save({ settings: { ...settings, householdName: String(form.get('householdName')), responsibleName: String(form.get('responsibleName')), mode: String(form.get('mode')) } }, 'Perfil atualizado.'); }}><Field label="Nome do espaço"><input name="householdName" defaultValue={settings.householdName} required placeholder="Ex: Casa Silva" /></Field><Field label="Responsável pelos lançamentos"><input name="responsibleName" defaultValue={settings.responsibleName || users[0]?.name || profileName} required /></Field><Field label="Como você usa o app?" className="full"><select name="mode" defaultValue={settings.mode}><option value="INDIVIDUAL">Controle individual</option><option value="HOUSEHOLD">Controle da casa / casal</option></select></Field><button className="primary-button" type="submit">Salvar perfil</button></form></article>
+          <div className="settings-grid"><article className="panel"><div className="panel-head"><div><span className="eyebrow">Seu espaço</span><h2>Perfil de uso</h2></div><UserIcon /></div><form className="form-grid" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); save({ settings: { ...settings, householdName: String(form.get('householdName')), responsibleName: String(form.get('responsibleName')), mode: String(form.get('mode')) } }, 'Perfil atualizado.'); }}><Field label="Nome do espaço"><input name="householdName" defaultValue={settings.householdName} required placeholder="Ex: Casa Silva" /></Field><Field label="Responsável pelos lançamentos"><input name="responsibleName" defaultValue={settings.responsibleName || profileName} required /></Field><Field label="Como você usa o app?" className="full"><select name="mode" defaultValue={settings.mode}><option value="INDIVIDUAL">Controle individual</option><option value="HOUSEHOLD">Controle da casa / casal</option></select></Field><button className="primary-button" type="submit">Salvar perfil</button></form></article>
           <article className="panel"><div className="panel-head"><div><span className="eyebrow">Entradas recorrentes</span><h2>Receitas mensais</h2></div><button className="icon-button" onClick={() => setIncomeModal('new')}><Plus /></button></div><p className="context-note"><Info /> Estas receitas formam a base de entradas de todos os meses no Dashboard e no gráfico histórico.</p><div className="income-list">{incomes.map(income => <div key={income.id}><div className="metric-icon green"><ArrowUpRight /></div><div><b>{income.name}</b><span>Todo dia {income.day}</span></div><strong>{money(income.amount, hidden)}</strong><button onClick={() => setIncomeModal(income)}><Pencil /></button><button onClick={() => window.confirm('Excluir esta receita mensal?') && save({ incomes: incomes.filter(item => item.id !== income.id) })}><Trash2 /></button></div>)}</div>{!incomes.length && <EmptyState icon={<CircleDollarSign />} title="Cadastre sua renda" text="Salários e outras entradas recorrentes entram automaticamente na projeção mensal." />}<button className="soft-button wide" onClick={() => setIncomeModal('new')}><Plus size={17} /> Adicionar receita mensal</button></article>
           <article className="panel"><div className="panel-head"><div><span className="eyebrow">Portabilidade</span><h2>Seus dados</h2></div><ShieldCheck /></div><p className="panel-copy">Mantenha uma cópia dos dados ou leve seus lançamentos para uma planilha.</p><div className="data-actions"><button onClick={exportBackup}><Download /> Baixar backup <span>Arquivo completo .json</span></button><button onClick={exportCsv}><FileDown /> Exportar planilha <span>Lançamentos em .csv</span></button><button onClick={() => importRef.current?.click()}><ArrowUpRight /> Restaurar backup <span>Substitui os dados atuais</span></button><input ref={importRef} hidden type="file" accept="application/json" onChange={importBackup} /></div></article>
           <article className="panel"><div className="panel-head"><div><span className="eyebrow">Aplicativo</span><h2>Preferências</h2></div><Settings /></div><div className="preference-list"><button onClick={() => save({ settings: { ...settings, hideValues: !hidden } })}><div>{hidden ? <EyeOff /> : <Eye />}<span><b>Privacidade dos valores</b><small>{hidden ? 'Valores ocultos' : 'Valores visíveis'}</small></span></div><i className={`switch ${hidden ? 'on' : ''}`} /></button>{!standalone && <button onClick={installApp}><div><Smartphone /><span><b>Instalar DuoFinance</b><small>Acesso rápido na tela inicial</small></span></div><ArrowRight /></button>}<div className="version"><span>Versão 2.0</span><span>Sincronização ativa</span></div></div></article>
-          <article className="panel access-panel"><div className="panel-head"><div><span className="eyebrow">Acessos compartilhados</span><h2>Usuários deste espaço</h2></div>{isOwner && <button className="icon-button" onClick={() => setUserModal(true)} aria-label="Adicionar usuário"><UserPlus /></button>}</div><p className="context-note"><Info /> Todos os usuários abaixo acessam as mesmas finanças. As alterações feitas por qualquer pessoa são sincronizadas nas quatro áreas.</p><div className="user-list">{users.map((user, index) => { const owner = user.role === 'OWNER' || (!user.role && index === 0); return <div key={user.id}><div className="avatar">{user.name.charAt(0).toUpperCase()}</div><div><b>{user.name}{user.id === currentUser.id && <small>Você</small>}</b><span>{user.email}</span></div><em>{owner ? 'Responsável' : 'Convidado'}</em>{isOwner && !owner && <button onClick={() => removeUser(user)} aria-label={`Remover ${user.name}`}><Trash2 /></button>}</div>; })}</div>{isOwner ? <button className="soft-button wide" onClick={() => setUserModal(true)}><UserPlus /> Criar novo acesso</button> : <p className="permission-note"><ShieldCheck /> Apenas o responsável pode gerenciar usuários.</p>}</article>
-          <article className="panel danger-panel"><div className="panel-head"><div><span className="eyebrow">Zona de segurança</span><h2>Resetar sistema</h2></div><AlertTriangle /></div><p>Apague receitas, lançamentos, metas e limites para recomeçar. Você também pode remover todos os usuários e voltar ao primeiro acesso.</p>{isOwner ? <button className="danger-button wide" onClick={() => setResetModal(true)}><RotateCcw /> Escolher dados para resetar</button> : <p className="permission-note"><ShieldCheck /> Apenas o responsável pode resetar o sistema.</p>}</article>
+          <article className="panel access-panel"><div className="panel-head"><div><span className="eyebrow">Privacidade</span><h2>Seu ambiente é exclusivo</h2></div><ShieldCheck /></div><p className="context-note"><Info /> Sua conta possui um espaço financeiro próprio. Nenhum outro usuário vê seus lançamentos, receitas, metas ou gráficos.</p><div className="shared-access-notice"><UserIcon /><div><b>{currentUser.name}</b><p>{currentUser.email} · acesso individual administrado pela central DuoFinance.</p></div></div></article>
+          <article className="panel danger-panel"><div className="panel-head"><div><span className="eyebrow">Zona de segurança</span><h2>Limpar minhas finanças</h2></div><AlertTriangle /></div><p>Apaga receitas, lançamentos, metas e limites somente deste ambiente. Sua conta e os demais usuários não serão afetados.</p><button className="danger-button wide" onClick={() => setResetModal(true)}><RotateCcw /> Limpar dados financeiros</button></article>
           </div>
         </section>}
       </main>
@@ -713,8 +773,7 @@ function App() {
     {contributionGoal && <Modal title="Registrar aporte" subtitle={contributionGoal.name} onClose={() => setContributionGoal(null)}><form className="form-stack" onSubmit={addContribution}><div className="contribution-summary"><span>Acumulado atual</span><strong>{money(contributionGoal.currentAmount, hidden)}</strong><Progress value={contributionGoal.currentAmount / contributionGoal.targetAmount * 100} color={contributionGoal.color} /></div><Field label="Valor do aporte"><input name="amount" autoFocus type="number" min="0.01" max={Math.max(0.01, contributionGoal.targetAmount - contributionGoal.currentAmount)} step="0.01" required placeholder="R$ 0,00" /></Field><p className="impact-note"><Info /> O aporte aumentará esta meta e será criado como uma saída confirmada em Lançamentos, atualizando saldo e gráficos de {monthLabel(selectedMonth)}.</p><button className="primary-button wide" type="submit">Confirmar aporte</button></form></Modal>}
     {budgetModal && <Modal title="Limite por categoria" subtitle="Defina quanto pretende gastar por mês." onClose={() => setBudgetModal(false)}><form className="form-stack" onSubmit={submitBudget}><Field label="Categoria"><select name="category" required>{CATEGORIES.map(category => <option value={category.id} key={category.id}>{category.name}</option>)}</select></Field><Field label="Limite mensal"><input name="amount" type="number" min="0.01" step="0.01" required placeholder="R$ 0,00" /></Field><button className="primary-button wide" type="submit">Salvar limite</button></form></Modal>}
     {incomeModal && <Modal title={incomeModal === 'new' ? 'Nova receita mensal' : 'Editar receita mensal'} subtitle="Ela será considerada em todos os meses." onClose={() => setIncomeModal(null)}><form className="form-stack" onSubmit={submitIncome}><Field label="Descrição"><input name="name" required defaultValue={incomeModal === 'new' ? '' : incomeModal.name} placeholder="Ex: Salário" /></Field><div className="form-grid"><Field label="Valor líquido"><input name="amount" type="number" min="0.01" step="0.01" required defaultValue={incomeModal === 'new' ? '' : incomeModal.amount} /></Field><Field label="Dia do recebimento"><input name="day" type="number" min="1" max="31" required defaultValue={incomeModal === 'new' ? 5 : incomeModal.day} /></Field></div><button className="primary-button wide" type="submit">Salvar receita</button></form></Modal>}
-    {userModal && <Modal title="Criar novo acesso" subtitle="Este usuário poderá visualizar e alterar as mesmas finanças." onClose={() => setUserModal(false)}><form className="form-stack" onSubmit={submitUser}><div className="shared-access-notice"><UserPlus /><div><b>Um único espaço financeiro</b><p>Não será criada uma conta separada. Tudo que este usuário lançar será refletido para todos.</p></div></div><Field label="Nome do usuário"><input name="name" required minLength={2} autoComplete="name" placeholder="Ex: Maria" /></Field><Field label="E-mail de acesso"><input name="email" type="email" required autoComplete="email" placeholder="maria@email.com" /></Field><Field label="Senha inicial" hint="Mínimo de 4 caracteres"><input name="password" type="password" required minLength={4} autoComplete="new-password" /></Field><div className="modal-actions"><button type="button" className="ghost-button" onClick={() => setUserModal(false)}>Cancelar</button><button className="primary-button" type="submit"><UserPlus /> Criar acesso</button></div></form></Modal>}
-    {resetModal && <Modal title="Resetar o DuoFinance" subtitle="Esta ação não pode ser desfeita. Faça um backup antes de continuar." onClose={() => setResetModal(false)}><form className="form-stack" onSubmit={resetSystem}><div className="reset-warning"><AlertTriangle /><div><b>Escolha o que será apagado</b><p>O reset remove os dados diretamente da nuvem e de todos os dispositivos conectados.</p></div></div><div className="reset-options"><label><input type="radio" name="scope" value="FINANCIAL" defaultChecked /><span><b>Limpar somente as finanças</b><small>Apaga receitas, lançamentos, metas e limites. Mantém usuários e configurações.</small></span></label><label><input type="radio" name="scope" value="ALL" /><span><b>Apagar absolutamente tudo</b><small>Remove também usuários e configurações. O sistema voltará à tela de primeiro acesso.</small></span></label></div><Field label="Confirmação" hint="Digite RESETAR"><input name="confirmation" required autoComplete="off" placeholder="RESETAR" /></Field><div className="modal-actions"><button type="button" className="ghost-button" onClick={() => setResetModal(false)}>Cancelar</button><button className="danger-button" type="submit"><RotateCcw /> Resetar agora</button></div></form></Modal>}
+    {resetModal && <Modal title="Limpar minhas finanças" subtitle="Esta ação não pode ser desfeita. Faça um backup antes de continuar." onClose={() => setResetModal(false)}><form className="form-stack" onSubmit={resetSystem}><div className="reset-warning"><AlertTriangle /><div><b>Somente este ambiente será limpo</b><p>Receitas, lançamentos, metas e limites desta conta serão removidos da nuvem. O seu acesso continuará ativo.</p></div></div><Field label="Confirmação" hint="Digite RESETAR"><input name="confirmation" required autoComplete="off" placeholder="RESETAR" /></Field><div className="modal-actions"><button type="button" className="ghost-button" onClick={() => setResetModal(false)}>Cancelar</button><button className="danger-button" type="submit"><RotateCcw /> Limpar agora</button></div></form></Modal>}
     {installHelp && <Modal title="Instale o DuoFinance" subtitle="Tenha acesso rápido como um aplicativo." onClose={() => setInstallHelp(false)}><div className="install-steps"><div><b>1</b><span>No navegador, abra o menu de compartilhamento ou os três pontos.</span></div><div><b>2</b><span>Escolha “Adicionar à tela de início” ou “Instalar aplicativo”.</span></div><div><b>3</b><span>Confirme para criar o atalho no seu celular ou computador.</span></div></div><button className="primary-button wide" onClick={() => setInstallHelp(false)}>Entendi</button></Modal>}
     {toast && <Toast toast={toast} />}
   </div>;
