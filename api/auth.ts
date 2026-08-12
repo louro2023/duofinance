@@ -24,7 +24,7 @@ export default async function handler(request: any, response: any) {
       const root = await firebaseRequest('') || {};
       const accountId = newId('acc');
       const workspaceId = 'workspace_principal';
-      const admin = { id: accountId, name, email, password: hashPassword(password), role: 'ADMIN', workspaceId, active: true, createdAt: new Date().toISOString() };
+      const admin = { id: accountId, name, email, password: hashPassword(password), role: 'ADMIN', workspaceId, accessLevel: 'OWNER', active: true, createdAt: new Date().toISOString() };
       const migratedAccounts: Record<string, any> = { [accountId]: admin };
       await firebaseRequest('', 'PATCH', {
         accounts: migratedAccounts,

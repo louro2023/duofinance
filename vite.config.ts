@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 import authHandler from './api/auth.ts';
 import adminHandler from './api/admin.ts';
 import financeHandler from './api/finance.ts';
+import householdHandler from './api/household.ts';
 
 const localApi = (): Plugin => ({
   name: 'duofinance-local-api',
@@ -11,7 +12,8 @@ const localApi = (): Plugin => ({
     const routes: Record<string, (request: any, response: any) => Promise<any>> = {
       '/api/auth': authHandler,
       '/api/admin': adminHandler,
-      '/api/finance': financeHandler
+      '/api/finance': financeHandler,
+      '/api/household': householdHandler
     };
     server.middlewares.use(async (request, response, next) => {
       const handler = routes[String(request.url || '').split('?')[0]];

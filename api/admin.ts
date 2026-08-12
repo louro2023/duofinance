@@ -27,7 +27,7 @@ export default async function handler(request: any, response: any) {
       if (accounts.some(account => account.email === email)) return response.status(409).json({ error: 'Este e-mail já está cadastrado.' });
       const accountId = newId('acc');
       const workspaceId = newId('ws');
-      const account = { id: accountId, name, email, password: hashPassword(password), role: 'USER', workspaceId, active: true, createdAt: new Date().toISOString() };
+      const account = { id: accountId, name, email, password: hashPassword(password), role: 'USER', workspaceId, accessLevel: 'OWNER', active: true, createdAt: new Date().toISOString() };
       await firebaseRequest('', 'PATCH', {
         [`accounts/${accountId}`]: account,
         [`workspaces/${workspaceId}/settings`]: { householdName: `Finanças de ${name}`, responsibleName: name, mode: 'INDIVIDUAL', hideValues: false }
