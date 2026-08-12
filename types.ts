@@ -33,6 +33,7 @@ export interface Transaction {
   installmentsCount?: number;
   currentInstallment?: number;
   parentId?: string;
+  goalId?: string;
   isPaid: boolean;
   paidMonths?: string[];
   notes?: string;
