@@ -19,6 +19,7 @@ export interface Account {
   workspaceId: string;
   active: boolean;
   createdAt: string;
+  accessLevel?: 'OWNER' | 'MEMBER';
 }
 
 export interface Income {

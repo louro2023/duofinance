@@ -13,6 +13,7 @@ Controle financeiro pessoal ou doméstico, feito para uma pessoa centralizar os 
 - backup JSON e exportação CSV;
 - ambiente de administrador geral para criar, suspender e redefinir senhas de usuários;
 - um ambiente financeiro privado e independente para cada usuário;
+- modo casa/casal com um segundo acesso próprio compartilhando o mesmo ambiente financeiro;
 - reset das finanças limitado ao ambiente da conta conectada;
 - layout responsivo e instalação como PWA;
 - sincronização com o Firebase por uma API no mesmo domínio, com cache local para falhas temporárias de conexão.
