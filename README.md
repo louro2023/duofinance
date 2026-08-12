@@ -11,10 +11,11 @@ Controle financeiro pessoal ou doméstico, feito para uma pessoa centralizar os 
 - limites mensais por categoria;
 - metas com prazo, aporte mensal e aportes extras;
 - backup JSON e exportação CSV;
-- usuários adicionais compartilhando o mesmo espaço financeiro;
-- reset somente das finanças ou reset completo do sistema;
+- ambiente de administrador geral para criar, suspender e redefinir senhas de usuários;
+- um ambiente financeiro privado e independente para cada usuário;
+- reset das finanças limitado ao ambiente da conta conectada;
 - layout responsivo e instalação como PWA;
-- sincronização pelo Firebase Realtime Database.
+- sincronização com o Firebase por uma API no mesmo domínio, com cache local para falhas temporárias de conexão.
 
 ## Como as áreas se conectam
 
@@ -49,4 +50,8 @@ npm run build
 npm run preview
 ```
 
-> Antes de publicar, configure regras privadas no Firebase Realtime Database. A configuração do cliente não substitui autenticação e regras de acesso no servidor.
+Em desenvolvimento, o Vite executa localmente as rotas de autenticação, administração e finanças. Na Vercel, as funções em `api/` fazem essa intermediação para evitar problemas de WebSocket, DNS e bloqueios de rede no navegador.
+
+No primeiro acesso após a atualização, o sistema solicita a criação do administrador geral e migra os dados financeiros existentes para o espaço principal. Depois disso, novas contas são criadas pela central administrativa e começam sem lançamentos.
+
+Para produção, mantenha a base do Firebase privada e configure `FIREBASE_DATABASE_AUTH` nas variáveis da Vercel com uma credencial de acesso ao Realtime Database. `FIREBASE_DATABASE_URL` é opcional e permite trocar a URL/base usada pelas funções. Não coloque essas credenciais em variáveis iniciadas por `VITE_`, pois elas seriam expostas no navegador.
