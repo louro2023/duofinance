@@ -3,11 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, onValue, ref, update } from 'firebase/database';
 import {
-  ArrowDownRight, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, BellRing, CalendarDays,
+  AlertTriangle, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, BellRing, CalendarDays,
   Check, CircleDollarSign, Download, Eye, EyeOff, FileDown, Info,
   LayoutDashboard, LogOut, Pencil, PiggyBank, Plus, Receipt,
   Repeat2, Search, Settings, ShieldCheck, Smartphone, Sparkles, Target, Trash2, TrendingDown,
-  TrendingUp, User as UserIcon, WalletCards, X
+  RotateCcw, TrendingUp, User as UserIcon, UserPlus, WalletCards, X
 } from 'lucide-react';
 import type {
   AppSettings, CategoryBudget, Income, PaymentMethod, SavingsGoal, Transaction, TransactionKind,
@@ -154,6 +154,8 @@ function App() {
   const [contributionGoal, setContributionGoal] = useState<SavingsGoal | null>(null);
   const [budgetModal, setBudgetModal] = useState(false);
   const [incomeModal, setIncomeModal] = useState<Income | null | 'new'>(null);
+  const [userModal, setUserModal] = useState(false);
+  const [resetModal, setResetModal] = useState(false);
   const [installHelp, setInstallHelp] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [standalone, setStandalone] = useState(false);
@@ -444,6 +446,58 @@ function App() {
     setIncomeModal(null);
   };
 
+  const submitUser = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (currentUser?.role === 'MEMBER') return;
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get('name') || '').trim();
+    const email = String(form.get('email') || '').trim().toLowerCase();
+    const password = String(form.get('password') || '');
+    if (users.some(user => user.email.toLowerCase() === email)) {
+      notify('Já existe um usuário com este e-mail.', 'error');
+      return;
+    }
+    const newUser: User = { id: id(), name, email, password: await hashPassword(password), role: 'MEMBER' };
+    await save({ users: [...users, newUser] }, 'Novo acesso criado.');
+    setUserModal(false);
+  };
+
+  const removeUser = async (user: User) => {
+    if (user.id === currentUser?.id || user.role === 'OWNER') return;
+    if (!window.confirm(`Remover o acesso de ${user.name}? Os dados financeiros não serão apagados.`)) return;
+    await save({ users: users.filter(item => item.id !== user.id) }, 'Acesso removido.');
+  };
+
+  const resetSystem = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (currentUser?.role === 'MEMBER') return;
+    const form = new FormData(event.currentTarget);
+    const scope = String(form.get('scope'));
+    const confirmation = String(form.get('confirmation') || '').trim().toUpperCase();
+    if (confirmation !== 'RESETAR') {
+      notify('Digite RESETAR para confirmar.', 'error');
+      return;
+    }
+    if (scope === 'ALL') {
+      try {
+        await update(ref(db, DB_PATH), {
+          users: null, incomes: null, transactions: null, goals: null, budgets: null, settings: null
+        });
+        localStorage.removeItem('duofinance_session');
+        setSessionUserId('');
+        setResetModal(false);
+      } catch (error) {
+        console.error(error);
+        notify('Não foi possível resetar o sistema.', 'error');
+      }
+      return;
+    }
+    await save({ incomes: null, transactions: null, goals: null, budgets: null }, 'Dados financeiros removidos.');
+    setResetModal(false);
+    setSelectedMonth(new Date());
+    setTab('dashboard');
+  };
+
   const exportBackup = () => {
     const blob = new Blob([JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), users, incomes, transactions, goals, budgets, settings }, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
@@ -508,7 +562,8 @@ function App() {
   }
 
   const hidden = settings.hideValues;
-  const profileName = settings.responsibleName || currentUser.name;
+  const profileName = currentUser.name;
+  const isOwner = currentUser.role === 'OWNER' || (!currentUser.role && currentUser.id === users[0]?.id);
   const navItems: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Visão geral', icon: <LayoutDashboard size={20} /> },
     { id: 'transactions', label: 'Lançamentos', icon: <Receipt size={20} /> },
@@ -603,10 +658,13 @@ function App() {
         {tab === 'settings' && <section className="page-section settings-page">
           <div className="page-title"><div><span className="eyebrow">Personalização e dados</span><h1>Ajustes</h1><p>Configure o DuoFinance para a sua rotina.</p></div></div>
           <IntegrationMap active={tab} onNavigate={setTab} />
-          <div className="settings-grid"><article className="panel"><div className="panel-head"><div><span className="eyebrow">Seu espaço</span><h2>Perfil de uso</h2></div><UserIcon /></div><form className="form-grid" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); save({ settings: { ...settings, householdName: String(form.get('householdName')), responsibleName: String(form.get('responsibleName')), mode: String(form.get('mode')) } }, 'Perfil atualizado.'); }}><Field label="Nome do espaço"><input name="householdName" defaultValue={settings.householdName} required placeholder="Ex: Casa Silva" /></Field><Field label="Responsável pelos lançamentos"><input name="responsibleName" defaultValue={profileName} required /></Field><Field label="Como você usa o app?" className="full"><select name="mode" defaultValue={settings.mode}><option value="INDIVIDUAL">Controle individual</option><option value="HOUSEHOLD">Controle da casa / casal</option></select></Field><button className="primary-button" type="submit">Salvar perfil</button></form></article>
+          <div className="settings-grid"><article className="panel"><div className="panel-head"><div><span className="eyebrow">Seu espaço</span><h2>Perfil de uso</h2></div><UserIcon /></div><form className="form-grid" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); save({ settings: { ...settings, householdName: String(form.get('householdName')), responsibleName: String(form.get('responsibleName')), mode: String(form.get('mode')) } }, 'Perfil atualizado.'); }}><Field label="Nome do espaço"><input name="householdName" defaultValue={settings.householdName} required placeholder="Ex: Casa Silva" /></Field><Field label="Responsável pelos lançamentos"><input name="responsibleName" defaultValue={settings.responsibleName || users[0]?.name || profileName} required /></Field><Field label="Como você usa o app?" className="full"><select name="mode" defaultValue={settings.mode}><option value="INDIVIDUAL">Controle individual</option><option value="HOUSEHOLD">Controle da casa / casal</option></select></Field><button className="primary-button" type="submit">Salvar perfil</button></form></article>
           <article className="panel"><div className="panel-head"><div><span className="eyebrow">Entradas recorrentes</span><h2>Receitas mensais</h2></div><button className="icon-button" onClick={() => setIncomeModal('new')}><Plus /></button></div><p className="context-note"><Info /> Estas receitas formam a base de entradas de todos os meses no Dashboard e no gráfico histórico.</p><div className="income-list">{incomes.map(income => <div key={income.id}><div className="metric-icon green"><ArrowUpRight /></div><div><b>{income.name}</b><span>Todo dia {income.day}</span></div><strong>{money(income.amount, hidden)}</strong><button onClick={() => setIncomeModal(income)}><Pencil /></button><button onClick={() => window.confirm('Excluir esta receita mensal?') && save({ incomes: incomes.filter(item => item.id !== income.id) })}><Trash2 /></button></div>)}</div>{!incomes.length && <EmptyState icon={<CircleDollarSign />} title="Cadastre sua renda" text="Salários e outras entradas recorrentes entram automaticamente na projeção mensal." />}<button className="soft-button wide" onClick={() => setIncomeModal('new')}><Plus size={17} /> Adicionar receita mensal</button></article>
           <article className="panel"><div className="panel-head"><div><span className="eyebrow">Portabilidade</span><h2>Seus dados</h2></div><ShieldCheck /></div><p className="panel-copy">Mantenha uma cópia dos dados ou leve seus lançamentos para uma planilha.</p><div className="data-actions"><button onClick={exportBackup}><Download /> Baixar backup <span>Arquivo completo .json</span></button><button onClick={exportCsv}><FileDown /> Exportar planilha <span>Lançamentos em .csv</span></button><button onClick={() => importRef.current?.click()}><ArrowUpRight /> Restaurar backup <span>Substitui os dados atuais</span></button><input ref={importRef} hidden type="file" accept="application/json" onChange={importBackup} /></div></article>
-          <article className="panel"><div className="panel-head"><div><span className="eyebrow">Aplicativo</span><h2>Preferências</h2></div><Settings /></div><div className="preference-list"><button onClick={() => save({ settings: { ...settings, hideValues: !hidden } })}><div>{hidden ? <EyeOff /> : <Eye />}<span><b>Privacidade dos valores</b><small>{hidden ? 'Valores ocultos' : 'Valores visíveis'}</small></span></div><i className={`switch ${hidden ? 'on' : ''}`} /></button>{!standalone && <button onClick={installApp}><div><Smartphone /><span><b>Instalar DuoFinance</b><small>Acesso rápido na tela inicial</small></span></div><ArrowRight /></button>}<div className="version"><span>Versão 2.0</span><span>Sincronização ativa</span></div></div></article></div>
+          <article className="panel"><div className="panel-head"><div><span className="eyebrow">Aplicativo</span><h2>Preferências</h2></div><Settings /></div><div className="preference-list"><button onClick={() => save({ settings: { ...settings, hideValues: !hidden } })}><div>{hidden ? <EyeOff /> : <Eye />}<span><b>Privacidade dos valores</b><small>{hidden ? 'Valores ocultos' : 'Valores visíveis'}</small></span></div><i className={`switch ${hidden ? 'on' : ''}`} /></button>{!standalone && <button onClick={installApp}><div><Smartphone /><span><b>Instalar DuoFinance</b><small>Acesso rápido na tela inicial</small></span></div><ArrowRight /></button>}<div className="version"><span>Versão 2.0</span><span>Sincronização ativa</span></div></div></article>
+          <article className="panel access-panel"><div className="panel-head"><div><span className="eyebrow">Acessos compartilhados</span><h2>Usuários deste espaço</h2></div>{isOwner && <button className="icon-button" onClick={() => setUserModal(true)} aria-label="Adicionar usuário"><UserPlus /></button>}</div><p className="context-note"><Info /> Todos os usuários abaixo acessam as mesmas finanças. As alterações feitas por qualquer pessoa são sincronizadas nas quatro áreas.</p><div className="user-list">{users.map((user, index) => { const owner = user.role === 'OWNER' || (!user.role && index === 0); return <div key={user.id}><div className="avatar">{user.name.charAt(0).toUpperCase()}</div><div><b>{user.name}{user.id === currentUser.id && <small>Você</small>}</b><span>{user.email}</span></div><em>{owner ? 'Responsável' : 'Convidado'}</em>{isOwner && !owner && <button onClick={() => removeUser(user)} aria-label={`Remover ${user.name}`}><Trash2 /></button>}</div>; })}</div>{isOwner ? <button className="soft-button wide" onClick={() => setUserModal(true)}><UserPlus /> Criar novo acesso</button> : <p className="permission-note"><ShieldCheck /> Apenas o responsável pode gerenciar usuários.</p>}</article>
+          <article className="panel danger-panel"><div className="panel-head"><div><span className="eyebrow">Zona de segurança</span><h2>Resetar sistema</h2></div><AlertTriangle /></div><p>Apague receitas, lançamentos, metas e limites para recomeçar. Você também pode remover todos os usuários e voltar ao primeiro acesso.</p>{isOwner ? <button className="danger-button wide" onClick={() => setResetModal(true)}><RotateCcw /> Escolher dados para resetar</button> : <p className="permission-note"><ShieldCheck /> Apenas o responsável pode resetar o sistema.</p>}</article>
+          </div>
         </section>}
       </main>
     </div>
@@ -618,6 +676,8 @@ function App() {
     {contributionGoal && <Modal title="Registrar aporte" subtitle={contributionGoal.name} onClose={() => setContributionGoal(null)}><form className="form-stack" onSubmit={addContribution}><div className="contribution-summary"><span>Acumulado atual</span><strong>{money(contributionGoal.currentAmount, hidden)}</strong><Progress value={contributionGoal.currentAmount / contributionGoal.targetAmount * 100} color={contributionGoal.color} /></div><Field label="Valor do aporte"><input name="amount" autoFocus type="number" min="0.01" max={Math.max(0.01, contributionGoal.targetAmount - contributionGoal.currentAmount)} step="0.01" required placeholder="R$ 0,00" /></Field><p className="impact-note"><Info /> O aporte aumentará esta meta e será criado como uma saída confirmada em Lançamentos, atualizando saldo e gráficos de {monthLabel(selectedMonth)}.</p><button className="primary-button wide" type="submit">Confirmar aporte</button></form></Modal>}
     {budgetModal && <Modal title="Limite por categoria" subtitle="Defina quanto pretende gastar por mês." onClose={() => setBudgetModal(false)}><form className="form-stack" onSubmit={submitBudget}><Field label="Categoria"><select name="category" required>{CATEGORIES.map(category => <option value={category.id} key={category.id}>{category.name}</option>)}</select></Field><Field label="Limite mensal"><input name="amount" type="number" min="0.01" step="0.01" required placeholder="R$ 0,00" /></Field><button className="primary-button wide" type="submit">Salvar limite</button></form></Modal>}
     {incomeModal && <Modal title={incomeModal === 'new' ? 'Nova receita mensal' : 'Editar receita mensal'} subtitle="Ela será considerada em todos os meses." onClose={() => setIncomeModal(null)}><form className="form-stack" onSubmit={submitIncome}><Field label="Descrição"><input name="name" required defaultValue={incomeModal === 'new' ? '' : incomeModal.name} placeholder="Ex: Salário" /></Field><div className="form-grid"><Field label="Valor líquido"><input name="amount" type="number" min="0.01" step="0.01" required defaultValue={incomeModal === 'new' ? '' : incomeModal.amount} /></Field><Field label="Dia do recebimento"><input name="day" type="number" min="1" max="31" required defaultValue={incomeModal === 'new' ? 5 : incomeModal.day} /></Field></div><button className="primary-button wide" type="submit">Salvar receita</button></form></Modal>}
+    {userModal && <Modal title="Criar novo acesso" subtitle="Este usuário poderá visualizar e alterar as mesmas finanças." onClose={() => setUserModal(false)}><form className="form-stack" onSubmit={submitUser}><div className="shared-access-notice"><UserPlus /><div><b>Um único espaço financeiro</b><p>Não será criada uma conta separada. Tudo que este usuário lançar será refletido para todos.</p></div></div><Field label="Nome do usuário"><input name="name" required minLength={2} autoComplete="name" placeholder="Ex: Maria" /></Field><Field label="E-mail de acesso"><input name="email" type="email" required autoComplete="email" placeholder="maria@email.com" /></Field><Field label="Senha inicial" hint="Mínimo de 4 caracteres"><input name="password" type="password" required minLength={4} autoComplete="new-password" /></Field><div className="modal-actions"><button type="button" className="ghost-button" onClick={() => setUserModal(false)}>Cancelar</button><button className="primary-button" type="submit"><UserPlus /> Criar acesso</button></div></form></Modal>}
+    {resetModal && <Modal title="Resetar o DuoFinance" subtitle="Esta ação não pode ser desfeita. Faça um backup antes de continuar." onClose={() => setResetModal(false)}><form className="form-stack" onSubmit={resetSystem}><div className="reset-warning"><AlertTriangle /><div><b>Escolha o que será apagado</b><p>O reset remove os dados diretamente da nuvem e de todos os dispositivos conectados.</p></div></div><div className="reset-options"><label><input type="radio" name="scope" value="FINANCIAL" defaultChecked /><span><b>Limpar somente as finanças</b><small>Apaga receitas, lançamentos, metas e limites. Mantém usuários e configurações.</small></span></label><label><input type="radio" name="scope" value="ALL" /><span><b>Apagar absolutamente tudo</b><small>Remove também usuários e configurações. O sistema voltará à tela de primeiro acesso.</small></span></label></div><Field label="Confirmação" hint="Digite RESETAR"><input name="confirmation" required autoComplete="off" placeholder="RESETAR" /></Field><div className="modal-actions"><button type="button" className="ghost-button" onClick={() => setResetModal(false)}>Cancelar</button><button className="danger-button" type="submit"><RotateCcw /> Resetar agora</button></div></form></Modal>}
     {installHelp && <Modal title="Instale o DuoFinance" subtitle="Tenha acesso rápido como um aplicativo." onClose={() => setInstallHelp(false)}><div className="install-steps"><div><b>1</b><span>No navegador, abra o menu de compartilhamento ou os três pontos.</span></div><div><b>2</b><span>Escolha “Adicionar à tela de início” ou “Instalar aplicativo”.</span></div><div><b>3</b><span>Confirme para criar o atalho no seu celular ou computador.</span></div></div><button className="primary-button wide" onClick={() => setInstallHelp(false)}>Entendi</button></Modal>}
     {toast && <Toast toast={toast} />}
   </div>;
