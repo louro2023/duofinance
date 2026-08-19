@@ -5,7 +5,7 @@ import {
   Check, ChevronDown, CircleDollarSign, Download, Eye, EyeOff, FileDown, Info,
   LayoutDashboard, LogOut, Pencil, PiggyBank, Plus, Receipt,
   Repeat2, Search, Settings, ShieldCheck, Smartphone, Sparkles, Target, Trash2, TrendingDown,
-  RotateCcw, TrendingUp, User as UserIcon, UserPlus, WalletCards, X
+  RotateCcw, Share2, TrendingUp, User as UserIcon, UserPlus, WalletCards, X
 } from 'lucide-react';
 import type {
   AppSettings, CategoryBudget, Income, PaymentMethod, SavingsGoal, Transaction, TransactionKind,
@@ -133,6 +133,72 @@ function FillGuide({ tab }: { tab: Tab }) {
   return <details className="fill-guide" open={tab === 'settings'}><summary><div><Sparkles /><span><b>{guide.title}</b><small>{guide.intro}</small></span></div><ChevronDown /></summary><ol>{guide.items.map(item => <li key={item}>{item}</li>)}</ol></details>;
 }
 
+function SalesLandingPage() {
+  const goToLogin = () => { window.location.href = '/'; };
+
+  return <div className="sales-page">
+    <header className="sales-nav">
+      <a className="brand-line" href="#inicio" aria-label="DuoFinance - início"><span className="brand-mark small"><WalletCards /></span><b>DuoFinance</b></a>
+      <nav aria-label="Navegação da apresentação"><a href="#recursos">Recursos</a><a href="#como-funciona">Como funciona</a><a href="#duvidas">Dúvidas</a></nav>
+      <button className="sales-login" onClick={goToLogin}>Já tenho acesso <ArrowRight /></button>
+    </header>
+
+    <main id="inicio">
+      <section className="sales-hero">
+        <div className="sales-hero-copy">
+          <span className="sales-pill"><Sparkles /> Clareza para decidir melhor</span>
+          <h1>Organize seu dinheiro sem transformar sua vida em uma planilha.</h1>
+          <p>Receitas, despesas, limites e metas conversam entre si em um único lugar. Você entende o mês, identifica excessos e planeja os próximos passos com mais segurança.</p>
+          <div className="sales-hero-actions"><button className="sales-primary" onClick={goToLogin}>Quero organizar minhas finanças <ArrowRight /></button><a href="#como-funciona">Ver como funciona</a></div>
+          <div className="sales-trust"><span><Check /> Controle individual ou em casal</span><span><Check /> Sem conectar conta bancária</span><span><Check /> Funciona no celular e computador</span></div>
+        </div>
+        <div className="sales-visual" aria-label="Exemplo da visão financeira do DuoFinance">
+          <img src="/images/financas-em-casal.jpg" alt="Casal organizando as finanças em casa" />
+          <div className="sales-balance-card"><small>Saldo projetado</small><strong>Seu mês, sem surpresas</strong><div><span>Receitas</span><i /><span>Despesas e metas</span></div></div>
+          <div className="sales-mini-card"><Target /><span><b>Metas visíveis</b><small>Acompanhe cada avanço</small></span></div>
+        </div>
+      </section>
+
+      <section className="sales-proof" aria-label="Benefícios principais"><article><strong>1 visão</strong><span>para entender todo o mês</span></article><article><strong>4 etapas</strong><span>com ordem de preenchimento</span></article><article><strong>2 modos</strong><span>individual ou casa / casal</span></article><article><strong>Dados seus</strong><span>com backup e exportação</span></article></section>
+
+      <section className="sales-section" id="recursos">
+        <div className="sales-section-title"><span>Finanças que fazem sentido</span><h2>Menos dúvida. Mais controle sobre cada decisão.</h2><p>O DuoFinance transforma lançamentos do dia a dia em informações úteis para você agir.</p></div>
+        <div className="sales-feature-grid">
+          <article><span><LayoutDashboard /></span><h3>Visão completa do mês</h3><p>Saldo atual e projetado, contas pendentes, distribuição por categoria e histórico mensal no mesmo painel.</p></article>
+          <article><span><Receipt /></span><h3>Lançamentos conectados</h3><p>Receitas e despesas atualizam automaticamente limites, saldo, comparativos e gráficos.</p></article>
+          <article><span><Target /></span><h3>Metas e orçamento</h3><p>Defina quanto pretende gastar e acompanhe objetivos sem perder de vista o impacto na renda.</p></article>
+          <article><span><UserIcon /></span><h3>Individual ou compartilhado</h3><p>Use sozinho ou convide outra pessoa para cuidar das mesmas finanças com acesso próprio.</p></article>
+          <article><span><BarChart3 /></span><h3>Leitura visual</h3><p>Gráficos organizam os números e mostram onde o dinheiro está sendo usado ao longo dos meses.</p></article>
+          <article><span><Download /></span><h3>Portabilidade dos dados</h3><p>Baixe um backup completo ou exporte os lançamentos para continuar sua análise em planilha.</p></article>
+        </div>
+      </section>
+
+      <section className="sales-modes">
+        <div className="sales-mode-image"><img src="/images/financas-individuais-v2.jpg" alt="Pessoa planejando suas finanças individuais" /></div>
+        <div className="sales-mode-copy"><span className="eyebrow">Um sistema que acompanha sua rotina</span><h2>Comece sozinho. Compartilhe quando fizer sentido.</h2><p>No modo individual, seus lançamentos ficam em um ambiente exclusivo. No controle da casa ou casal, cada pessoa entra com seu próprio acesso e todos enxergam o mesmo planejamento.</p><ul><li><ShieldCheck /> Ambientes financeiros separados entre clientes</li><li><UserPlus /> Acesso compartilhado apenas com quem você convidar</li><li><Eye /> Identificação de renda e gastos por pessoa</li></ul></div>
+      </section>
+
+      <section className="sales-section sales-steps" id="como-funciona">
+        <div className="sales-section-title"><span>Simples desde o primeiro acesso</span><h2>Você sabe exatamente por onde começar.</h2></div>
+        <div><article><b>01</b><h3>Configure seu espaço</h3><p>Escolha o modo de uso e cadastre as receitas mensais.</p></article><ArrowRight /><article><b>02</b><h3>Planeje</h3><p>Crie limites de gastos e metas que caibam na sua realidade.</p></article><ArrowRight /><article><b>03</b><h3>Registre</h3><p>Adicione entradas e saídas conforme elas acontecerem.</p></article><ArrowRight /><article><b>04</b><h3>Acompanhe</h3><p>Use os gráficos e indicadores para ajustar suas escolhas.</p></article></div>
+      </section>
+
+      <section className="sales-faq" id="duvidas">
+        <div><span className="eyebrow">Antes de começar</span><h2>Dúvidas frequentes</h2><p>Informações claras para você decidir sem pressão.</p></div>
+        <div className="sales-faq-list">
+          <details><summary>Preciso conectar minha conta bancária?<Plus /></summary><p>Não. O preenchimento é feito por você, sem informar senha ou credencial bancária.</p></details>
+          <details><summary>Posso usar com meu marido ou minha esposa?<Plus /></summary><p>Sim. O modo casa / casal permite criar outro acesso para controlar o mesmo ambiente e comparar renda e gastos por pessoa.</p></details>
+          <details><summary>Consigo acessar pelo celular?<Plus /></summary><p>Sim. A interface é responsiva e o DuoFinance pode ser adicionado à tela inicial como aplicativo.</p></details>
+          <details><summary>Meus dados ficam misturados com os de outros usuários?<Plus /></summary><p>Não. Cada cliente recebe um ambiente financeiro independente. O compartilhamento acontece somente dentro da própria casa, quando configurado.</p></details>
+        </div>
+      </section>
+
+      <section className="sales-final"><span>Seu dinheiro já conta uma história.</span><h2>Tenha clareza para escrever os próximos capítulos.</h2><p>Abra o DuoFinance e solicite seu acesso à pessoa que compartilhou esta apresentação com você.</p><button className="sales-primary" onClick={goToLogin}>Acessar o DuoFinance <ArrowRight /></button></section>
+    </main>
+    <footer className="sales-footer"><div className="brand-line"><span className="brand-mark small"><WalletCards /></span><b>DuoFinance</b></div><p>Controle financeiro pessoal e familiar com informação clara e escolhas conscientes.</p><button onClick={goToLogin}>Entrar no sistema</button></footer>
+  </div>;
+}
+
 function AdminEnvironment({ account, onLogout, onOpenFinance }: { account: Account; onLogout: () => void; onOpenFinance: () => void }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,7 +262,7 @@ function AdminEnvironment({ account, onLogout, onOpenFinance }: { account: Accou
   return <div className="admin-shell">
     <header className="admin-topbar"><div className="brand-line"><div className="brand-mark"><WalletCards /></div><b>DuoFinance</b><span>Administração geral</span></div><div className="admin-profile"><div className="avatar">{account.name.charAt(0).toUpperCase()}</div><div><b>{account.name}</b><span>Administrador geral</span></div><button className="icon-button" onClick={onLogout} aria-label="Sair"><LogOut /></button></div></header>
     <main className="admin-content">
-      <section className="admin-welcome"><div><span className="eyebrow">Central de acessos</span><h1>Usuários do DuoFinance</h1><p>Crie contas independentes. Cada pessoa recebe um espaço financeiro vazio e privado, sem acesso aos dados dos demais usuários.</p></div><div className="admin-welcome-actions"><button className="soft-button" onClick={onOpenFinance}><LayoutDashboard /> Minhas finanças</button><button className="primary-button" onClick={() => setCreateModal(true)}><UserPlus /> Novo usuário</button></div></section>
+      <section className="admin-welcome"><div><span className="eyebrow">Central de acessos</span><h1>Usuários do DuoFinance</h1><p>Crie contas independentes. Cada pessoa recebe um espaço financeiro vazio e privado, sem acesso aos dados dos demais usuários.</p></div><div className="admin-welcome-actions"><button className="soft-button" onClick={onOpenFinance}><LayoutDashboard /> Minhas finanças</button><button className="soft-button" onClick={() => window.open(`${window.location.origin}/?apresentacao=1`, '_blank', 'noopener,noreferrer')}><Share2 /> Compartilhar sistema</button><button className="primary-button" onClick={() => setCreateModal(true)}><UserPlus /> Novo usuário</button></div></section>
       <section className="admin-metrics"><article><UserIcon /><div><strong>{users.length}</strong><span>usuários cadastrados</span></div></article><article><ShieldCheck /><div><strong>{users.filter(user => user.active).length}</strong><span>acessos ativos</span></div></article><article><WalletCards /><div><strong>{new Set(users.map(user => user.workspaceId)).size}</strong><span>ambientes financeiros</span></div></article></section>
       <section className="panel admin-users"><div className="panel-head"><div><span className="eyebrow">Gerenciamento</span><h2>Contas de usuários</h2></div></div>
         <div className="admin-note"><Info /><span>O administrador gerencia credenciais, mas os lançamentos e valores de cada usuário permanecem separados em seu próprio ambiente.</span></div>
@@ -753,7 +819,7 @@ function App() {
               <div className="family-guidance"><Info /><p><b>Leitura saudável:</b> “quem gastou mais” mostra somente o responsável atribuído ao pagamento. Para decisões justas, compare também a renda comprometida e conversem sobre despesas e metas comuns.</p></div>
             </> : <div className="family-empty"><div><h3>Convide a outra pessoa da casa</h3><p>Em Ajustes, crie um acesso compartilhado. Depois, atribua cada renda e lançamento para acompanhar a participação de cada pessoa.</p><button className="soft-button" onClick={() => setTab('settings')}><UserPlus /> Configurar acessos</button></div></div>}
           </section>}
-          {settings.mode === 'INDIVIDUAL' && !hasSharedAccess && <section className="household-invite panel"><img src="/images/financas-individuais.jpg" alt="Pessoa organizando suas finanças individuais com tranquilidade" /><div><span className="eyebrow">Controle individual</span><h2>Seu dinheiro, suas escolhas</h2><p>Acompanhe sua renda, entenda para onde o dinheiro está indo e transforme o saldo do mês em metas que façam sentido para a sua rotina.</p><button className="soft-button" onClick={() => setTab('settings')}><Settings /> Personalizar meu espaço</button></div></section>}
+          {settings.mode === 'INDIVIDUAL' && !hasSharedAccess && <section className="household-invite panel"><img src="/images/financas-individuais-v2.jpg" alt="Pessoa organizando suas finanças individuais com tranquilidade" /><div><span className="eyebrow">Controle individual</span><h2>Seu dinheiro, suas escolhas</h2><p>Acompanhe sua renda, entenda para onde o dinheiro está indo e transforme o saldo do mês em metas que façam sentido para a sua rotina.</p><button className="soft-button" onClick={() => setTab('settings')}><Settings /> Personalizar meu espaço</button></div></section>}
 
           <section className="metric-grid">
             <article className="metric-card"><div className="metric-icon violet"><Receipt /></div><span>Contas pendentes</span><strong>{money(pendingTotal, hidden)}</strong><small>{monthlyExpenses.filter(item => !isPaidInSelectedMonth(item)).length} lançamentos a confirmar</small></article>
@@ -858,4 +924,5 @@ function Toast({ toast }: { toast: Exclude<ToastState, null> }) {
 }
 
 const root = document.getElementById('root');
-if (root) createRoot(root).render(<App />);
+const showSalesPage = new URLSearchParams(window.location.search).get('apresentacao') === '1';
+if (root) createRoot(root).render(showSalesPage ? <SalesLandingPage /> : <App />);
